@@ -1,13 +1,14 @@
-VuFind
+ElasticFind
 ======
 
 Introduction
 ------------
-VuFind is an open source discovery environment for searching a collection of
-records.  To learn more, visit http://vufind.org.
+ElasticFind is an open source discovery environment for searching a collection of
+records based on VuFind. ElasticFind will replace the search engine (Solr) for VuFind
+with elasticsearch and simplify VuFind as possible.
 
 
 Installation
 ------------
 
-See online documentation at http://vufind.org/wiki/vufind2:installation_notes
+Not available.
