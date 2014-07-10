@@ -1,0 +1,30 @@
+[2014-07-10 12:42:33,453][INFO ][node                     ] [Zero-G] version[1.2.2], pid[20762], build[9902f08/2014-07-09T12:02:32Z]
+[2014-07-10 12:42:33,453][INFO ][node                     ] [Zero-G] initializing ...
+[2014-07-10 12:42:33,462][INFO ][plugins                  ] [Zero-G] loaded [], sites [kopf, segmentspy, inquisitor, head, bigdesk, rtf]
+[2014-07-10 12:42:35,381][INFO ][node                     ] [Zero-G] initialized
+[2014-07-10 12:42:35,381][INFO ][node                     ] [Zero-G] starting ...
+[2014-07-10 12:42:35,435][INFO ][transport                ] [Zero-G] bound_address {inet[/0:0:0:0:0:0:0:0:9301]}, publish_address {inet[/192.168.89.161:9301]}
+[2014-07-10 12:42:38,461][INFO ][cluster.service          ] [Zero-G] new_master [Zero-G][Q2ELartgQ7K7sFj61fSmvw][lib-192-168-89-181.lakeheadu.ca][inet[/192.168.89.161:9301]], reason: zen-disco-join (elected_as_master)
+[2014-07-10 12:42:38,486][INFO ][discovery                ] [Zero-G] elasticsearch/Q2ELartgQ7K7sFj61fSmvw
+[2014-07-10 12:42:38,530][INFO ][http                     ] [Zero-G] bound_address {inet[/0:0:0:0:0:0:0:0:9201]}, publish_address {inet[/192.168.89.161:9201]}
+[2014-07-10 12:42:38,538][INFO ][gateway                  ] [Zero-G] recovered [0] indices into cluster_state
+[2014-07-10 12:42:38,538][INFO ][node                     ] [Zero-G] started
+[2014-07-10 12:43:17,830][INFO ][node                     ] [Zero-G] stopping ...
+[2014-07-10 12:43:17,851][INFO ][node                     ] [Zero-G] stopped
+[2014-07-10 12:43:17,851][INFO ][node                     ] [Zero-G] closing ...
+[2014-07-10 12:43:17,858][INFO ][node                     ] [Zero-G] closed
+[2014-07-10 12:43:19,293][INFO ][node                     ] [Mother Night] version[1.2.2], pid[20849], build[9902f08/2014-07-09T12:02:32Z]
+[2014-07-10 12:43:19,293][INFO ][node                     ] [Mother Night] initializing ...
+[2014-07-10 12:43:19,301][INFO ][plugins                  ] [Mother Night] loaded [], sites [kopf, segmentspy, inquisitor, head, bigdesk, rtf]
+[2014-07-10 12:43:21,226][INFO ][node                     ] [Mother Night] initialized
+[2014-07-10 12:43:21,226][INFO ][node                     ] [Mother Night] starting ...
+[2014-07-10 12:43:21,279][INFO ][transport                ] [Mother Night] bound_address {inet[/0:0:0:0:0:0:0:0:9300]}, publish_address {inet[/192.168.89.161:9300]}
+[2014-07-10 12:43:24,304][INFO ][cluster.service          ] [Mother Night] new_master [Mother Night][PCrjfK_7QtS7agQYLQN8gQ][lib-192-168-89-181.lakeheadu.ca][inet[/192.168.89.161:9300]], reason: zen-disco-join (elected_as_master)
+[2014-07-10 12:43:24,332][INFO ][discovery                ] [Mother Night] elasticsearch/PCrjfK_7QtS7agQYLQN8gQ
+[2014-07-10 12:43:24,373][INFO ][http                     ] [Mother Night] bound_address {inet[/0:0:0:0:0:0:0:0:9200]}, publish_address {inet[/192.168.89.161:9200]}
+[2014-07-10 12:43:24,384][INFO ][gateway                  ] [Mother Night] recovered [0] indices into cluster_state
+[2014-07-10 12:43:24,385][INFO ][node                     ] [Mother Night] started
+[2014-07-10 12:43:37,603][INFO ][node                     ] [Mother Night] stopping ...
+[2014-07-10 12:43:37,630][INFO ][node                     ] [Mother Night] stopped
+[2014-07-10 12:43:37,630][INFO ][node                     ] [Mother Night] closing ...
+[2014-07-10 12:43:37,636][INFO ][node                     ] [Mother Night] closed
