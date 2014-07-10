@@ -11,4 +11,4 @@ with elasticsearch and simplify VuFind as possible.
 Installation
 ------------
 
-Not available.
+Not available and under construction.
