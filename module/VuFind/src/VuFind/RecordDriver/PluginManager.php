@@ -26,6 +26,7 @@
  * @link     http://vufind.org/wiki/vufind2:record_drivers Wiki
  */
 namespace VuFind\RecordDriver;
+use Zend\ServiceManager\ConfigInterface;
 
 /**
  * Record driver plugin manager
@@ -41,11 +42,10 @@ class PluginManager extends \VuFind\ServiceManager\AbstractPluginManager
     /**
      * Constructor
      *
-     * @param null|ConfigInterface $configuration Configuration settings (optional)
+     * @param ConfigInterface $configuration Configuration settings (optional)
      */
-    public function __construct(
-        \Zend\ServiceManager\ConfigInterface $configuration = null
-    ) {
+    public function __construct(ConfigInterface $configuration = null)
+    {
         // Record drivers are not meant to be shared -- every time we retrieve one,
         // we are building a brand new object.
         $this->setShareByDefault(false);
@@ -54,9 +54,9 @@ class PluginManager extends \VuFind\ServiceManager\AbstractPluginManager
 
         // Add an initializer for setting up hierarchies
         $initializer = function ($instance, $manager) {
-            $hasHierarchyType = is_callable(array($instance, 'getHierarchyType'));
+            $hasHierarchyType = is_callable([$instance, 'getHierarchyType']);
             if ($hasHierarchyType
-                && is_callable(array($instance, 'setHierarchyDriverManager'))
+                && is_callable([$instance, 'setHierarchyDriverManager'])
             ) {
                 $sm = $manager->getServiceLocator();
                 if ($sm && $sm->has('VuFind\HierarchyDriverPluginManager')) {
@@ -89,8 +89,12 @@ class PluginManager extends \VuFind\ServiceManager\AbstractPluginManager
      */
     public function getSolrRecord($data)
     {
-        $key = 'Solr' . ucwords($data['recordtype']);
-        $recordType = $this->has($key) ? $key : 'SolrDefault';
+        if (isset($data['recordtype'])) {
+            $key = 'Solr' . ucwords($data['recordtype']);
+            $recordType = $this->has($key) ? $key : 'SolrDefault';
+        } else {
+            $recordType = 'SolrDefault';
+        }
 
         // Build the object:
         $driver = $this->get($recordType);

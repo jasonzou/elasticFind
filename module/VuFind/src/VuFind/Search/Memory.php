@@ -26,7 +26,7 @@
  * @link     http://www.vufind.org  Main Page
  */
 namespace VuFind\Search;
-use Zend\Session\Container as SessionContainer;
+use Zend\Session\Container;
 
 /**
  * Wrapper class to handle search memory
@@ -40,14 +40,90 @@ use Zend\Session\Container as SessionContainer;
 class Memory
 {
     /**
+     * Is memory currently active? (i.e. will we save new URLs?)
+     *
+     * @var bool
+     */
+    protected $active = true;
+
+    /**
+     * Session container
+     *
+     * @var Container
+     */
+    protected $session;
+
+    /**
+     * Constructor
+     *
+     * @param Container $session Session container for storing URLs (optional)
+     */
+    public function __construct($session = null)
+    {
+        $this->session = (null === $session)
+            ? new Container('Search') : $session;
+    }
+
+    /**
+     * Stop updating the URL in memory -- used in combined search to prevent
+     * multiple search URLs from overwriting one another.
+     *
+     * @return void
+     */
+    public function disable()
+    {
+        $this->active = false;
+    }
+
+    /**
      * Clear the last accessed search URL in the session.
      *
      * @return void
      */
-    public static function forgetSearch()
+    public function forgetSearch()
     {
-        $session = new SessionContainer('Search');
-        unset($session->last);
+        unset($this->session->last);
+    }
+
+    /**
+     * Remember a user's last search parameters.
+     *
+     * @param string $context Context of search (usually search class ID).
+     * @param array  $params  Associative array of keys/values to store.
+     *
+     * @return void
+     */
+    public function rememberLastSettings($context, $params)
+    {
+        if (!$this->active) {
+            return;
+        }
+        foreach ($params as $setting => $value) {
+            $this->session->{"params|$context|$setting"} = $value;
+        }
+    }
+
+    /**
+     * Wrapper around rememberLastSettings() to extract key values from a
+     * search Params object.
+     *
+     * @param \VuFind\Search\Base\Params $params Parameter object
+     *
+     * @return void
+     */
+    public function rememberParams(\VuFind\Search\Base\Params $params)
+    {
+        $settings = [
+            'hiddenFilters' => $params->getHiddenFilters(),
+            'limit' => $params->getLimit(),
+            'sort' => $params->getSort(),
+            'view' => $params->getView(),
+        ];
+        // Special case: RSS view should not be persisted:
+        if (strtolower($settings['view']) == 'rss') {
+            unset($settings['view']);
+        }
+        $this->rememberLastSettings($params->getSearchClassId(), $settings);
     }
 
     /**
@@ -57,15 +133,47 @@ class Memory
      *
      * @return void
      */
-    public static function rememberSearch($url)
+    public function rememberSearch($url)
     {
+        // Do nothing if disabled.
+        if (!$this->active) {
+            return;
+        }
+
         // Only remember URL if string is non-empty... otherwise clear the memory.
         if (strlen(trim($url)) > 0) {
-            $session = new SessionContainer('Search');
-            $session->last = $url;
+            $this->session->last = $url;
         } else {
-            self::forgetSearch();
+            $this->forgetSearch();
         }
+    }
+
+    /**
+     * Deprecated alias for retrieveSearch, for legacy compatibility.
+     *
+     * @deprecated
+     *
+     * @return string|null
+     */
+    public function retrieve()
+    {
+        return $this->retrieveSearch();
+    }
+
+    /**
+     * Retrieve a previous user parameter, if available. Return $default if
+     * not found.
+     *
+     * @param string $context Context of search (usually search class ID).
+     * @param string $setting Name of setting to retrieve.
+     * @param mixed  $default Default value if setting is absent.
+     *
+     * @return mixed
+     */
+    public function retrieveLastSetting($context, $setting, $default = null)
+    {
+        return isset($this->session->{"params|$context|$setting"})
+            ? $this->session->{"params|$context|$setting"} : $default;
     }
 
     /**
@@ -74,9 +182,8 @@ class Memory
      *
      * @return string|null
      */
-    public static function retrieve()
+    public function retrieveSearch()
     {
-        $session = new SessionContainer('Search');
-        return isset($session->last) ? $session->last : null;
+        return isset($this->session->last) ? $this->session->last : null;
     }
 }

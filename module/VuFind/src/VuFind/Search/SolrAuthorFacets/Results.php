@@ -27,10 +27,6 @@
  */
 namespace VuFind\Search\SolrAuthorFacets;
 
-use VuFindSearch\Query\AbstractQuery;
-
-use VuFindSearch\ParamBag;
-
 /**
  * AuthorFacets Search Results
  *
@@ -51,7 +47,7 @@ class Results extends \VuFind\Search\Solr\Results
     protected function performSearch()
     {
         $query = $this->getParams()->getQuery();
-        $params = $this->createBackendParameters($query, $this->getParams());
+        $params = $this->getParams()->getBackendParameters();
         // Perform the search:
         $collection = $this->getSearchService()
             ->search($this->backendId, $query, 0, 0, $params);
@@ -59,7 +55,7 @@ class Results extends \VuFind\Search\Solr\Results
         $this->responseFacets = $collection->getFacets();
 
         // Get the facets from which we will build our results:
-        $facets = $this->getFacetList(array('authorStr' => null));
+        $facets = $this->getFacetList(['authorStr' => null]);
         if (isset($facets['authorStr'])) {
             $params = $this->getParams();
             $this->resultTotal

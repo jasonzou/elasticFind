@@ -28,7 +28,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindSearch\Backend\Solr;
 
 use VuFindSearch\Query\AbstractQuery;
@@ -66,4 +65,14 @@ interface QueryBuilderInterface
      * @return void
      */
     public function setCreateHighlightingQuery($enable);
+
+    /**
+     * Control whether or not the QueryBuilder should create a spellcheck.q
+     * parameter. (Turned off by default).
+     *
+     * @param bool $enable Should spelling query generation be enabled?
+     *
+     * @return void
+     */
+    public function setCreateSpellingQuery($enable);
 }

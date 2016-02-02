@@ -26,7 +26,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindSearch\Backend\Summon\Response;
 
 use VuFindSearch\Response\AbstractRecordCollection;
@@ -59,6 +58,14 @@ class RecordCollection extends AbstractRecordCollection
     public function __construct(array $response)
     {
         $this->response = $response;
+
+        // Determine the offset:
+        $page = isset($this->response['query']['pageNumber'])
+            ? $this->response['query']['pageNumber'] - 1 : 0;
+        $size = isset($this->response['query']['pageSize'])
+            ? $this->response['query']['pageSize'] : 0;
+        $this->offset = $page * $size;
+
         $this->rewind();
     }
 
@@ -69,7 +76,8 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getTotal()
     {
-        return $this->response['recordCount'];
+        return isset($this->response['recordCount'])
+            ? $this->response['recordCount'] : 0;
     }
 
     /**
@@ -80,21 +88,7 @@ class RecordCollection extends AbstractRecordCollection
     public function getFacets()
     {
         return isset($this->response['facetFields'])
-            ? $this->response['facetFields'] : array();
-    }
-
-    /**
-     * Return offset in the total search result set.
-     *
-     * @return int
-     */
-    public function getOffset()
-    {
-        $page = isset($this->response['query']['pageNumber'])
-            ? $this->response['query']['pageNumber'] - 1 : 0;
-        $size = isset($this->response['query']['pageSize'])
-            ? $this->response['query']['pageSize'] : 0;
-        return $page * $size;
+            ? $this->response['facetFields'] : [];
     }
 
     /**
@@ -109,7 +103,7 @@ class RecordCollection extends AbstractRecordCollection
         ) {
             return $this->response['didYouMeanSuggestions'];
         }
-        return array();
+        return [];
     }
 
     /**
@@ -132,5 +126,16 @@ class RecordCollection extends AbstractRecordCollection
     {
         return isset($this->response['recommendationLists']['database'])
             ? $this->response['recommendationLists']['database'] : false;
+    }
+
+    /**
+     * Get topic recommendations from Summon, if any.
+     *
+     * @return array|bool false if no recommendations, detailed array otherwise.
+     */
+    public function getTopicRecommendations()
+    {
+        return isset($this->response['topicRecommendations'])
+            ? $this->response['topicRecommendations'] : false;
     }
 }

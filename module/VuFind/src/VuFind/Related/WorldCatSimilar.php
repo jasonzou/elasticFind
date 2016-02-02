@@ -39,8 +39,6 @@ namespace VuFind\Related;
 class WorldCatSimilar extends Similar
 {
     /**
-     * init
-     *
      * Establishes base settings for making recommendations.
      *
      * @param string                            $settings Settings from config.ini
@@ -51,7 +49,7 @@ class WorldCatSimilar extends Similar
     public function init($settings, $driver)
     {
         // Create array of query parts:
-        $parts = array();
+        $parts = [];
 
         // Add Dewey class to query
         $deweyClass = $driver->tryMethod('getDeweyCallNumber');
@@ -85,7 +83,7 @@ class WorldCatSimilar extends Similar
         $query = '(' . implode(' or ', $parts) . ')';
 
         // Not current record ID if this is already a WorldCat record:
-        if ($driver->getResourceSource() == 'WorldCat') {
+        if ($driver->getSourceIdentifier() == 'WorldCat') {
             $id = $driver->getUniqueId();
             $query .= " not srw.no all \"$id\"";
         }

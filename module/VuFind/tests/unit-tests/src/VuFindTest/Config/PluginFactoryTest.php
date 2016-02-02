@@ -52,7 +52,7 @@ class PluginFactoryTest extends \VuFindTest\Unit\TestCase
      *
      * @var array
      */
-    protected static $filesToDelete = array();
+    protected static $filesToDelete = [];
 
     /**
      * Plugin factory instance.
@@ -95,13 +95,15 @@ class PluginFactoryTest extends \VuFindTest\Unit\TestCase
         }
 
         // Mark for cleanup:
-        self::$filesToDelete = array($parentPath, $childPath);
+        self::$filesToDelete = [$parentPath, $childPath];
     }
 
     /**
-     * Constructor
+     * Standard setup method.
+     *
+     * @return void
      */
-    public function __construct()
+    public function setUp()
     {
         $this->factory = new \VuFind\Config\PluginFactory();
     }
@@ -173,6 +175,21 @@ class PluginFactoryTest extends \VuFindTest\Unit\TestCase
 
         // Make sure Section 3 was inherited; values from parent should exist.
         $this->assertEquals('7', $config->Section3->g);
+    }
+
+    /**
+     * Test that the plugin factory omits the Parent_Config section from the
+     * merged configuration.
+     *
+     * @void
+     */
+    public function testParentConfigOmission()
+    {
+        if (self::$writeFailed) {
+            $this->markTestSkipped('Could not write test configurations.');
+        }
+        $config = $this->getConfig('unit-test-child');
+        $this->assertFalse(isset($config->Parent_Config));
     }
 
     /**

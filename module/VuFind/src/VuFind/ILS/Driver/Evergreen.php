@@ -42,7 +42,18 @@ use PDO, PDOException, VuFind\Exception\ILS as ILSException;
  */
 class Evergreen extends AbstractBase
 {
+    /**
+     * Database connection
+     *
+     * @var PDO
+     */
     protected $db;
+
+    /**
+     * Database name
+     *
+     * @var string
+     */
     protected $dbName;
 
      /**
@@ -67,15 +78,15 @@ class Evergreen extends AbstractBase
         try {
             $this->db = new PDO(
                 'pgsql:host='
-                .$this->config['Catalog']['hostname']
-                .' user='
-                .$this->config['Catalog']['user']
-                .' dbname='
-                .$this->config['Catalog']['database']
-                .' password='
-                .$this->config['Catalog']['password']
-                .' port='
-                .$this->config['Catalog']['port']
+                . $this->config['Catalog']['hostname']
+                . ' user='
+                . $this->config['Catalog']['user']
+                . ' dbname='
+                . $this->config['Catalog']['database']
+                . ' password='
+                . $this->config['Catalog']['password']
+                . ' port='
+                . $this->config['Catalog']['port']
             );
         } catch (PDOException $e) {
             throw $e;
@@ -96,25 +107,23 @@ class Evergreen extends AbstractBase
      */
     public function getStatus($id)
     {
-        $holding = array();
+        $holding = [];
 
         // Build SQL Statement
-        $sql = "select copy_status.name as status, " .
-               "call_number.label as callnumber, " .
-               "copy_location.name as location " .
-               "from $this->dbName.config.copy_status, " .
-               "$this->dbName.asset.call_number, " .
-               "$this->dbName.asset.copy_location, " .
-               "$this->dbName.asset.copy " .
-               "where copy.id = $id " .
-               "and copy.status = copy_status.id " .
-               "and copy.call_number = call_number.id " .
-               "and copy.location = copy_location.id";
+        $sql = <<<HERE
+SELECT ccs.name AS status, acn.label AS callnumber, acpl.name AS location
+FROM config.copy_status ccs
+    INNER JOIN asset.copy ac ON ccs.id = ac.status
+    INNER JOIN asset.call_number acn ON ac.call_number = acn.id
+    INNER JOIN asset.copy_location acpl ON ac.copy_location = acpl.id
+WHERE ac.id = ?
+HERE;
 
         // Execute SQL
         try {
-            $holding = array();
+            $holding = [];
             $sqlStmt = $this->db->prepare($sql);
+            $sqlStmt->bindParam(1, $id, PDO::PARAM_INT);
             $sqlStmt->execute();
         } catch (PDOException $e) {
             throw new ILSException($e->getMessage());
@@ -137,14 +146,14 @@ class Evergreen extends AbstractBase
                 break;
             }
 
-            $holding[] = array(
+            $holding[] = [
                 'id' => $id,
                 'availability' => $available,
                 'status' => $row['status'],
                 'location' => $row['location'],
                 'reserve' => $reserve,
                 'callnumber' => $row['callnumber']
-            );
+            ];
         }
 
         return $holding;
@@ -163,7 +172,7 @@ class Evergreen extends AbstractBase
      */
     public function getStatuses($idList)
     {
-        $status = array();
+        $status = [];
         foreach ($idList as $id) {
             $status[] = $this->getStatus($id);
         }
@@ -185,34 +194,31 @@ class Evergreen extends AbstractBase
      * keys: id, availability (boolean), status, location, reserve, callnumber,
      * duedate, number, barcode.
      */
-    public function getHolding($id, $patron = false)
+    public function getHolding($id, array $patron = null)
     {
-        $holding = array();
+        $holding = [];
 
         // Build SQL Statement
-        $sql = "select copy_status.name as status, " .
-               "call_number.label as callnumber, " .
-               "org_unit.name as location, " .
-               "copy.copy_number as copy_number, " .
-               "copy.barcode as barcode, " .
-               "extract (year from circulation.due_date) as due_year, " .
-               "extract (month from circulation.due_date) as due_month, " .
-               "extract (day from circulation.due_date) as due_day " .
-               "from $this->dbName.config.copy_status, " .
-               "$this->dbName.asset.call_number, " .
-               "$this->dbName.actor.org_unit, " .
-               "$this->dbName.asset.copy " .
-               "FULL JOIN $this->dbName.action.circulation " .
-               "ON (copy.id = circulation.target_copy " .
-               " and circulation.checkin_time is null) " .
-               "where copy.id = $id " .
-               "and copy.status = copy_status.id " .
-               "and copy.call_number = call_number.id " .
-               "and copy.circ_lib = org_unit.id";
+        $sql = <<<HERE
+SELECT ccs.name AS status, acn.label AS callnumber, aou.name AS location,
+    ac.copy_number, ac.barcode,
+    extract (year from circ.due_date) as due_year,
+    extract (month from circ.due_date) as due_month,
+    extract (day from circ.due_date) as due_day
+FROM config.copy_status ccs
+    INNER JOIN asset.copy ac ON ac.status = ccs.id
+    INNER JOIN asset.call_number acn ON acn.id = ac.call_number
+    INNER JOIN actor.org_unit aou ON aou.id = ac.circ_lib
+    FULL JOIN action.circulation circ ON (
+        ac.id = circ.target_copy AND circ.checkin_time IS NULL
+    )
+WHERE acn.record = ?
+HERE;
 
         // Execute SQL
         try {
             $sqlStmt = $this->db->prepare($sql);
+            $sqlStmt->bindParam(1, $id, PDO::PARAM_INT);
             $sqlStmt->execute();
         } catch (PDOException $e) {
             throw new ILSException($e->getMessage());
@@ -246,8 +252,7 @@ class Evergreen extends AbstractBase
             } else {
                 $due_date = "";
             }
-
-            $holding[] = array(
+            $holding[] = [
                 'id' => $id,
                 'availability' => $available,
                 'status' => $row['status'],
@@ -257,7 +262,7 @@ class Evergreen extends AbstractBase
                 'duedate' => $due_date,
                 'number' => $row['copy_number'],
                 'barcode' => $row['barcode']
-            );
+            ];
         }
 
         return $holding;
@@ -273,13 +278,14 @@ class Evergreen extends AbstractBase
      *
      * @throws ILSException
      * @return array     An array with the acquisitions data on success.
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
     public function getPurchaseHistory($id)
     {
         // TODO
-        return array();
+        return [];
     }
-
 
     /**
      * Patron Login
@@ -295,27 +301,30 @@ class Evergreen extends AbstractBase
      */
     public function patronLogin($barcode, $passwd)
     {
-        $sql = "select usr.id as id, usr.first_given_name as firstName, " .
-               "usr.family_name as lastName, usr.email, usrname " .
-               "from actor.usr, actor.card " .
-               "where usr.card = card.id " .
-               "and card.active = true " .
-               "and usr.passwd = MD5('$passwd') ";
-
+        $sql = <<<HERE
+SELECT usr.id, usr.first_given_name as firstName,
+    usr.family_name as lastName, usr.email, usrname
+FROM actor.usr usr
+    INNER JOIN actor.card ON usr.card = card.id
+WHERE card.active = true
+    AND usr.passwd = MD5(?)
+HERE;
         if (is_numeric($barcode)) {
             // A barcode was supplied as ID
-            $sql .= "and card.barcode = '$barcode'";
+            $sql .= "AND card.barcode = ?";
         } else {
             // A username was supplied as ID
-            $sql .= "and usr.usrname = '$barcode'";
+            $sql .= "AND usr.usrname = ?";
         }
 
         try {
             $sqlStmt = $this->db->prepare($sql);
+            $sqlStmt->bindParam(1, $passwd, PDO::PARAM_STR);
+            $sqlStmt->bindParam(2, $barcode, PDO::PARAM_STR);
             $sqlStmt->execute();
             $row = $sqlStmt->fetch(PDO::FETCH_ASSOC);
             if (isset($row['id']) && ($row['id'] != '')) {
-                $return = array();
+                $return = [];
                 $return['id'] = $row['id'];
                 $return['firstname'] = $row['firstname'];
                 $return['lastname'] = $row['lastname'];
@@ -347,7 +356,7 @@ class Evergreen extends AbstractBase
      */
     public function getMyTransactions($patron)
     {
-        $transList = array();
+        $transList = [];
 
         $sql = "select circulation.target_copy as bib_id, " .
                "extract (year from circulation.due_date) as due_year, " .
@@ -369,8 +378,8 @@ class Evergreen extends AbstractBase
                     $due_date = "";
                 }
 
-                $transList[] = array('duedate' => $due_date,
-                                     'id' => $row['bib_id']);
+                $transList[] = ['duedate' => $due_date,
+                                     'id' => $row['bib_id']];
             }
             return $transList;
         } catch (PDOException $e) {
@@ -391,16 +400,16 @@ class Evergreen extends AbstractBase
      */
     public function getMyFines($patron)
     {
-        $fineList = array();
+        $fineList = [];
 
         $sql = "select billable_xact_summary.total_owed, " .
                "billable_xact_summary.balance_owed, " .
                "billable_xact_summary.last_billing_type, " .
-               "extract (year from billable_xact_summary.xact_start) ".
+               "extract (year from billable_xact_summary.xact_start) " .
                "as start_year, " .
-               "extract (month from billable_xact_summary.xact_start) ".
+               "extract (month from billable_xact_summary.xact_start) " .
                "as start_month, " .
-               "extract (day from billable_xact_summary.xact_start) ".
+               "extract (day from billable_xact_summary.xact_start) " .
                "as start_day, " .
                "billable_cirulations.target_copy " .
                "from $this->dbName.money.billable_xact_summary " .
@@ -422,12 +431,12 @@ class Evergreen extends AbstractBase
                     $charge_date = "";
                 }
 
-                $fineList[] = array('amount' => $row['total_owed'],
+                $fineList[] = ['amount' => $row['total_owed'],
                                     'fine' => $row['last_billing_type'],
                                     'balance' => $row['balance_owed'],
                                     'checkout' => $charge_date,
                                     'duedate' => "",
-                                    'id' => $row['target_copy']);
+                                    'id' => $row['target_copy']];
             }
             return $fineList;
         } catch (PDOException $e) {
@@ -448,7 +457,7 @@ class Evergreen extends AbstractBase
      */
     public function getMyHolds($patron)
     {
-        $holdList = array();
+        $holdList = [];
 
         $sql = "select hold_request.hold_type, hold_request.current_copy, " .
                "extract (year from hold_request.expire_time) as exp_year, " .
@@ -483,11 +492,11 @@ class Evergreen extends AbstractBase
                     $exp_time = "";
                 }
 
-                $holdList[] = array('type' => $row['hold_type'],
+                $holdList[] = ['type' => $row['hold_type'],
                                     'id' => $row['current_copy'],
                                     'location' => $row['lib_name'],
                                     'expire' => $exp_time,
-                                    'create' => $req_time);
+                                    'create' => $req_time];
             }
             return $holdList;
         } catch (PDOException $e) {
@@ -507,17 +516,20 @@ class Evergreen extends AbstractBase
      */
     public function getMyProfile($patron)
     {
-        $sql = "select usr.family_name, usr.first_given_name, " .
-               "usr.day_phone, usr.evening_phone, usr.other_phone, " .
-               "usr_address.street1, usr_address.street2, " .
-               "usr_address.post_code, usr.usrgroup " .
-               "from actor.usr, actor.usr_address " .
-               "where usr.id = '" . $patron['id'] . "' " .
-               "and usr.active = true " .
-               "and usr.mailing_address = usr_address.id";
+        $sql = <<<HERE
+SELECT usr.family_name, usr.first_given_name, usr.day_phone,
+    usr.evening_phone, usr.other_phone, aua.street1,
+    aua.street2, aua.post_code, pgt.name AS usrgroup
+FROM actor.usr
+    FULL JOIN actor.usr_address aua ON aua.id = usr.mailing_address
+    INNER JOIN permission.grp_tree pgt ON pgt.id = usr.profile
+WHERE usr.active = true
+     AND usr.id = ?
+HERE;
 
         try {
             $sqlStmt = $this->db->prepare($sql);
+            $sqlStmt->bindParam(1, $patron['id'], PDO::PARAM_INT);
             $sqlStmt->execute();
             $row = $sqlStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -530,7 +542,7 @@ class Evergreen extends AbstractBase
             }
 
             if ($row) {
-                $patron = array(
+                $patron = [
                     'firstname' => $row['first_given_name'],
                     'lastname' => $row['family_name'],
                     'address1' => $row['street1'],
@@ -538,7 +550,7 @@ class Evergreen extends AbstractBase
                     'zip' => $row['post_code'],
                     'phone' => $phone,
                     'group' => $row['usrgroup']
-                );
+                ];
                 return $patron;
             } else {
                 return null;
@@ -547,7 +559,6 @@ class Evergreen extends AbstractBase
             throw new ILSException($e->getMessage());
         }
     }
-
 
     /**
      * Only one of the following 2 function should be implemented.
@@ -623,10 +634,12 @@ class Evergreen extends AbstractBase
      *
      * @throws ILSException
      * @return array       Associative array with 'count' and 'results' keys
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
     public function getNewItems($page, $limit, $daysOld, $fundId = null)
     {
-        $items = array();
+        $items = [];
 
         // Prevent unnecessary load
         // (Taken from Voyager driver - does Evergreen need this?)
@@ -651,10 +664,11 @@ class Evergreen extends AbstractBase
             throw new ILSException($e->getMessage());
         }
 
-        $page = ($page) ? $page : 1;
-        $limit = ($limit) ? $limit : 20;
-        $startRow = (($page-1)*$limit)+1;
-        $endRow = ($page*$limit);
+        // TODO: implement paging support
+        //$page = ($page) ? $page : 1;
+        //$limit = ($limit) ? $limit : 20;
+        //$startRow = (($page-1)*$limit)+1;
+        //$endRow = ($page*$limit);
 
         $sql = "select copy.id from asset.copy " .
                "where copy.create_date >= '$startdate' " .
@@ -709,7 +723,7 @@ class Evergreen extends AbstractBase
      */
     public function getSuppressedRecords()
     {
-        $list = array();
+        $list = [];
 
         $sql = "select copy.id as id " .
                "from $this->dbName.asset " .
@@ -718,7 +732,7 @@ class Evergreen extends AbstractBase
         try {
             $sqlStmt = $this->db->prepare($sql);
             $sqlStmt->execute();
-            while ($row = $sqlStm->fetch(PDO::FETCH_ASSOC)) {
+            while ($row = $sqlStmt->fetch(PDO::FETCH_ASSOC)) {
                 $list[] = $row['id'];
             }
         } catch (PDOException $e) {
@@ -741,7 +755,7 @@ class Evergreen extends AbstractBase
     public function getDepartments()
     {
         // TODO
-        return array();
+        return [];
     }
 
     /**
@@ -755,7 +769,7 @@ class Evergreen extends AbstractBase
     public function getInstructors()
     {
         // TODO
-        return array();
+        return [];
     }
 
     /**
@@ -769,7 +783,7 @@ class Evergreen extends AbstractBase
     public function getCourses()
     {
         // TODO
-        return array();
+        return [];
     }
 
     /**
@@ -783,10 +797,12 @@ class Evergreen extends AbstractBase
      *
      * @throws ILSException
      * @return array An array of associative arrays representing reserve items.
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
     public function findReserves($course, $inst, $dept)
     {
         // TODO
-        return array();
+        return [];
     }
 }

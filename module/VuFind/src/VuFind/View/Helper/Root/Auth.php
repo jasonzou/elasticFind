@@ -64,27 +64,29 @@ class Auth extends \Zend\View\Helper\AbstractHelper
      *
      * @return string
      */
-    protected function renderTemplate($name, $context = array())
+    protected function renderTemplate($name, $context = [])
     {
+        // Get the current auth module's class name
+        $className = $this->getManager()->getAuthClassForTemplateRendering();
+
         // Set up the needed context in the view:
         $contextHelper = $this->getView()->plugin('context');
+        $context['topClass'] = $this->getBriefClass($className);
         $oldContext = $contextHelper($this->getView())->apply($context);
 
-        // Get the current auth module's class name, then start a loop
-        // in case we need to use a parent class' name to find the appropriate
-        // template.
-        $className = $this->getManager()->getAuthClass();
+        // Start a loop in case we need to use a parent class' name to find the
+        // appropriate template.
         $topClassName = $className; // for error message
+        $resolver = $this->getView()->resolver();
         while (true) {
             // Guess the template name for the current class:
-            $classParts = explode('\\', $className);
-            $template = 'Auth/' . array_pop($classParts) . '/' . $name;
-            try {
+            $template = 'Auth/' . $this->getBriefClass($className) . '/' . $name;
+            if ($resolver->resolve($template)) {
                 // Try to render the template....
                 $html = $this->getView()->render($template);
                 $contextHelper($this->getView())->restore($oldContext);
                 return $html;
-            } catch (RuntimeException $e) {
+            } else {
                 // If the template doesn't exist, let's see if we can inherit a
                 // template from a parent class:
                 $className = get_parent_class($className);
@@ -127,7 +129,7 @@ class Auth extends \Zend\View\Helper\AbstractHelper
      *
      * @return string
      */
-    public function getCreateFields($context = array())
+    public function getCreateFields($context = [])
     {
         return $this->renderTemplate('create.phtml', $context);
     }
@@ -139,8 +141,69 @@ class Auth extends \Zend\View\Helper\AbstractHelper
      *
      * @return string
      */
-    public function getLoginFields($context = array())
+    public function getLoginFields($context = [])
+    {
+        return $this->renderTemplate('loginfields.phtml', $context);
+    }
+
+    /**
+     * Render the login template.
+     *
+     * @param array $context Context for rendering template
+     *
+     * @return string
+     */
+    public function getLogin($context = [])
     {
         return $this->renderTemplate('login.phtml', $context);
+    }
+
+    /**
+     * Render the login description template.
+     *
+     * @param array $context Context for rendering template
+     *
+     * @return string
+     */
+    public function getLoginDesc($context = [])
+    {
+        return $this->renderTemplate('logindesc.phtml', $context);
+    }
+
+    /**
+     * Helper to grab the end of the class name
+     *
+     * @param string $className Class name to abbreviate
+     *
+     * @return string
+     */
+    protected function getBriefClass($className)
+    {
+        $classParts = explode('\\', $className);
+        return array_pop($classParts);
+    }
+
+    /**
+     * Render the new password form template.
+     *
+     * @param array $context Context for rendering template
+     *
+     * @return string
+     */
+    public function getNewPasswordForm($context = [])
+    {
+        return $this->renderTemplate('newpassword.phtml', $context);
+    }
+
+    /**
+     * Render the password recovery form template.
+     *
+     * @param array $context Context for rendering template
+     *
+     * @return string
+     */
+    public function getPasswordRecoveryForm($context = [])
+    {
+        return $this->renderTemplate('recovery.phtml', $context);
     }
 }

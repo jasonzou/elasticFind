@@ -26,7 +26,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindTest\Backend\Solr\Document;
 
 use VuFindSearch\Backend\Solr\Document\OptimizeDocument;
@@ -55,6 +54,21 @@ class OptimizeDocumentTest extends PHPUnit_Framework_TestCase
         $xml = $document->asXML();
         $this->assertXmlStringEqualsXmlString(
             '<optimize waitFlush="false"/>',
+            $xml
+        );
+    }
+
+    /**
+     * Test creation of XML document with WaitSearcher.
+     *
+     * @return void
+     */
+    public function testAsXMLWithWaitSearcher()
+    {
+        $document = new OptimizeDocument(true, true);
+        $xml = $document->asXML();
+        $this->assertXmlStringEqualsXmlString(
+            '<optimize waitFlush="true" waitSearcher="true"/>',
             $xml
         );
     }

@@ -26,7 +26,6 @@
  * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
  */
 namespace VuFind\Search;
-use VuFind\Search\QueryAdapter;
 
 /**
  * A minified search object used exclusively for trimming a search object down to its
@@ -58,14 +57,21 @@ class Minified
      *
      * @var array
      */
-    public $t = array();
+    public $t = [];
 
     /**
      * Filters
      *
      * @var array
      */
-    public $f = array();
+    public $f = [];
+
+    /**
+     * Hidden Filters
+     *
+     * @var array
+     */
+    public $hf = [];
 
     /**
      * ID, start tIme, query Speed, Result total, search TYpe, search CLass id
@@ -97,6 +103,7 @@ class Minified
         // It would be nice to shorten filter fields too, but
         //      it would be a nightmare to maintain.
         $this->f = $searchObject->getParams()->getFilters();
+        $this->hf = $searchObject->getParams()->getHiddenFilters();
     }
 
     /**

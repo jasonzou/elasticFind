@@ -27,7 +27,13 @@
  * @link     http://vufind.org/wiki/vufind2:building_a_controller Wiki
  */
 namespace VuFind\Controller;
-use Zend\Mvc\Controller\AbstractActionController, Zend\View\Model\ViewModel;
+
+use VuFind\Exception\Forbidden as ForbiddenException,
+    Zend\Mvc\Controller\AbstractActionController,
+    Zend\Mvc\MvcEvent,
+    Zend\View\Model\ViewModel,
+    ZfcRbac\Service\AuthorizationServiceAwareInterface,
+    ZfcRbac\Service\AuthorizationServiceAwareTrait;
 
 /**
  * VuFind controller base class (defines some methods that can be shared by other
@@ -38,9 +44,60 @@ use Zend\Mvc\Controller\AbstractActionController, Zend\View\Model\ViewModel;
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org/wiki/vufind2:building_a_controller Wiki
+ *
+ * @SuppressWarnings(PHPMD.NumberOfChildren)
  */
 class AbstractBase extends AbstractActionController
+    implements AuthorizationServiceAwareInterface
 {
+    use AuthorizationServiceAwareTrait;
+
+    /**
+     * Permission that must be granted to access this module (false for no
+     * restriction)
+     *
+     * @var string|bool
+     */
+    protected $accessPermission = false;
+
+    /**
+     * Use preDispatch event to block access when appropriate.
+     *
+     * @param MvcEvent $e Event object
+     *
+     * @return void
+     */
+    public function preDispatch(MvcEvent $e)
+    {
+        // Make sure the current user has permission to access the module:
+        if ($this->accessPermission
+            && !$this->getAuthorizationService()->isGranted($this->accessPermission)
+        ) {
+            if (!$this->getUser()) {
+                $e->setResponse($this->forceLogin(null, [], false));
+                return;
+            }
+            throw new ForbiddenException('Access denied.');
+        }
+    }
+
+    /**
+     * Register the default events for this controller
+     *
+     * @return void
+     */
+    protected function attachDefaultListeners()
+    {
+        parent::attachDefaultListeners();
+        // Attach preDispatch event if we need to check permissions.
+        if ($this->accessPermission) {
+            $events = $this->getEventManager();
+            $events->attach(
+                MvcEvent::EVENT_DISPATCH, [$this, 'preDispatch'], 1000
+            );
+        }
+    }
+
     /**
      * Constructor
      */
@@ -63,6 +120,77 @@ class AbstractBase extends AbstractActionController
     }
 
     /**
+     * Create a new ViewModel to use as an email form.
+     *
+     * @param array  $params         Parameters to pass to ViewModel constructor.
+     * @param string $defaultSubject Default subject line to use.
+     *
+     * @return ViewModel
+     */
+    protected function createEmailViewModel($params = null, $defaultSubject = null)
+    {
+        // Build view:
+        $view = $this->createViewModel($params);
+
+        // Load configuration and current user for convenience:
+        $config = $this->getServiceLocator()->get('VuFind\Config')->get('config');
+        $view->disableFrom
+            = (isset($config->Mail->disable_from) && $config->Mail->disable_from);
+        $view->editableSubject = isset($config->Mail->user_editable_subjects)
+            && $config->Mail->user_editable_subjects;
+        $view->maxRecipients = isset($config->Mail->maximum_recipients)
+            ? intval($config->Mail->maximum_recipients) : 1;
+        $user = $this->getUser();
+
+        // Send parameters back to view so form can be re-populated:
+        if ($this->getRequest()->isPost()) {
+            $view->to = $this->params()->fromPost('to');
+            if (!$view->disableFrom) {
+                $view->from = $this->params()->fromPost('from');
+            }
+            if ($view->editableSubject) {
+                $view->subject = $this->params()->fromPost('subject');
+            }
+            $view->message = $this->params()->fromPost('message');
+        }
+
+        // Set default values if applicable:
+        if ((!isset($view->to) || empty($view->to)) && $user
+            && isset($config->Mail->user_email_in_to)
+            && $config->Mail->user_email_in_to
+        ) {
+            $view->to = $user->email;
+        }
+        if (!isset($view->from) || empty($view->from)) {
+            if ($user && isset($config->Mail->user_email_in_from)
+                && $config->Mail->user_email_in_from
+            ) {
+                $view->userEmailInFrom = true;
+                $view->from = $user->email;
+            } else if (isset($config->Mail->default_from)
+                && $config->Mail->default_from
+            ) {
+                $view->from = $config->Mail->default_from;
+            }
+        }
+        if (!isset($view->subject) || empty($view->subject)) {
+            $view->subject = $defaultSubject;
+        }
+
+        // Fail if we're missing a from and the form element is disabled:
+        if ($view->disableFrom) {
+            if (empty($view->from)) {
+                $view->from = $config->Site->email;
+            }
+            if (empty($view->from)) {
+                throw new \Exception('Unable to determine email from address');
+            }
+        }
+
+        return $view;
+    }
+
+    /**
      * Get the account manager object.
      *
      * @return \VuFind\Auth\Manager
@@ -70,6 +198,16 @@ class AbstractBase extends AbstractActionController
     protected function getAuthManager()
     {
         return $this->getServiceLocator()->get('VuFind\AuthManager');
+    }
+
+    /**
+     * Get the ILS authenticator.
+     *
+     * @return \VuFind\Auth\ILSAuthenticator
+     */
+    protected function getILSAuthenticator()
+    {
+        return $this->getServiceLocator()->get('VuFind\ILSAuthenticator');
     }
 
     /**
@@ -103,6 +241,118 @@ class AbstractBase extends AbstractActionController
     }
 
     /**
+     * Get a URL for a route with lightbox awareness.
+     *
+     * @param string $route              Route name
+     * @param array  $params             Route parameters
+     * @param array  $options            RouteInterface-specific options to use in
+     * url generation, if any
+     * @param bool   $reuseMatchedParams Whether to reuse matched parameters
+     *
+     * @return string
+     */
+    public function getLightboxAwareUrl($route, $params = [],
+        $options = [], $reuseMatchedParams = false
+    ) {
+        // Rearrange the parameters if we're in a lightbox:
+        if ($this->inLightbox()) {
+            // Make sure we have a query:
+            $options['query'] = isset($options['query'])
+                ? $options['query'] : [];
+
+            // Map ID route parameter into a GET parameter if necessary:
+            if (isset($params['id'])) {
+                $options['query']['id'] = $params['id'];
+            }
+
+            // Change the current route into submodule/subaction lightbox params:
+            $parts = explode('-', $route);
+            $options['query']['submodule'] = $parts[0];
+            $options['query']['subaction'] = isset($parts[1]) ? $parts[1] : 'home';
+            $options['query']['method'] = 'getLightbox';
+
+            // Override the current route with the lightbox action:
+            $route = 'default';
+            $params['controller'] = 'AJAX';
+            $params['action'] = 'JSON';
+        }
+
+        // Build the URL:
+        return $this->url()
+            ->fromRoute($route, $params, $options, $reuseMatchedParams);
+    }
+
+    /**
+     * Lightbox-aware redirect -- if we're in a lightbox, go to a route that
+     * keeps us there; otherwise, go to the normal route.
+     *
+     * @param string $route              Route name
+     * @param array  $params             Route parameters
+     * @param array  $options            RouteInterface-specific options to use in
+     * url generation, if any
+     * @param bool   $reuseMatchedParams Whether to reuse matched parameters
+     *
+     * @return \Zend\Http\Response
+     */
+    public function lightboxAwareRedirect($route, $params = [],
+        $options = [], $reuseMatchedParams = false
+    ) {
+        return $this->redirect()->toUrl(
+            $this->getLightboxAwareUrl(
+                $route, $params, $options, $reuseMatchedParams
+            )
+        );
+    }
+
+    /**
+     * Support method for forceLogin() -- convert a lightbox URL to a non-lightbox
+     * URL.
+     *
+     * @param string $url URL to convert
+     *
+     * @return string
+     */
+    protected function delightboxURL($url)
+    {
+        // If this isn't a lightbox URL, we don't want to mess with it!
+        $parts = parse_url($url);
+        parse_str($parts['query'], $query);
+        if (false === strpos($parts['path'], '/AJAX/JSON')) {
+            return $url;
+        }
+
+        // Build the route name:
+        $routeName = strtolower($query['submodule']) . '-'
+            . strtolower($query['subaction']);
+
+        // Eliminate lightbox-specific parameters that might confuse the router:
+        unset($query['method'], $query['subaction'], $query['submodule']);
+
+        // Get a preliminary URL that we'll need to analyze in order to build
+        // the final URL:
+        $url = $this->url()->fromRoute($routeName, $query);
+
+        // Using the URL generated above, figure out which parameters are route
+        // params and which are GET params:
+        $request = new \Zend\Http\Request();
+        $request->setUri($url);
+        $router = $this->getEvent()->getRouter();
+        $matched = $router->match($request)->getParams();
+        $getParams = $routeParams = [];
+        foreach ($query as $current => $val) {
+            if (isset($matched[$current])) {
+                $routeParams[$current] = $val;
+            } else {
+                $getParams[$current] = $val;
+            }
+        }
+
+        // Now build the final URL:
+        return $this->url()
+            ->fromRoute($routeName, $routeParams, ['query' => $getParams]);
+    }
+
+    /**
      * Redirect the user to the login screen.
      *
      * @param string $msg     Flash message to display on login screen
@@ -111,7 +361,7 @@ class AbstractBase extends AbstractActionController
      *
      * @return mixed
      */
-    protected function forceLogin($msg = null, $extras = array(), $forward = true)
+    protected function forceLogin($msg = null, $extras = [], $forward = true)
     {
         // Set default message if necessary.
         if (is_null($msg)) {
@@ -122,9 +372,20 @@ class AbstractBase extends AbstractActionController
         // lightbox (since lightboxes use a different followup mechanism).
         if (!$this->inLightbox()) {
             $this->followup()->store($extras);
+        } else {
+            // If we're in a lightbox and using an authentication method
+            // with a session initiator, the user will be redirected outside
+            // of VuFind and then redirected back. Thus, we need to store a
+            // followup URL to avoid losing context, but we don't want to
+            // store the AJAX request URL that populated the lightbox. The
+            // delightboxURL() routine will remap the URL appropriately.
+            // We can set this whether or not there's a session initiator
+            // because it will be cleared when needed.
+            $url = $this->delightboxURL($this->getServerUrl());
+            $this->followup()->store($extras, $url);
         }
         if (!empty($msg)) {
-            $this->flashMessenger()->setNamespace('error')->addMessage($msg);
+            $this->flashMessenger()->addMessage($msg, 'error');
         }
 
         // Set a flag indicating that we are forcing login:
@@ -152,19 +413,24 @@ class AbstractBase extends AbstractActionController
         }
 
         // Now check if the user has provided credentials with which to log in:
+        $ilsAuth = $this->getILSAuthenticator();
         if (($username = $this->params()->fromPost('cat_username', false))
             && ($password = $this->params()->fromPost('cat_password', false))
         ) {
-            $patron = $account->newCatalogLogin($username, $password);
+            // Check for multiple ILS target selection
+            $target = $this->params()->fromPost('target', false);
+            if ($target) {
+                $username = "$target.$username";
+            }
+            $patron = $ilsAuth->newCatalogLogin($username, $password);
 
             // If login failed, store a warning message:
             if (!$patron) {
-                $this->flashMessenger()->setNamespace('error')
-                    ->addMessage('Invalid Patron Login');
+                $this->flashMessenger()->addMessage('Invalid Patron Login', 'error');
             }
         } else {
             // If no credentials were provided, try the stored values:
-            $patron = $account->storedCatalogLogin();
+            $patron = $ilsAuth->storedCatalogLogin();
         }
 
         // If catalog login failed, send the user to the right page:
@@ -209,6 +475,16 @@ class AbstractBase extends AbstractActionController
     }
 
     /**
+     * Get the record cache
+     *
+     * @return \VuFind\Record\Cache
+     */
+    public function getRecordCache()
+    {
+        return $this->getServiceLocator()->get('VuFind\RecordCache');
+    }
+    
+    /**
      * Get the record router.
      *
      * @return \VuFind\Record\Router
@@ -250,15 +526,17 @@ class AbstractBase extends AbstractActionController
     /**
      * Translate a string if a translator is available.
      *
-     * @param string $msg Message to translate
+     * @param string $msg     Message to translate
+     * @param array  $tokens  Tokens to inject into the translated string
+     * @param string $default Default value to use if no translation is found (null
+     * for no default).
      *
      * @return string
      */
-    public function translate($msg)
+    public function translate($msg, $tokens = [], $default = null)
     {
-        return $this->getServiceLocator()->has('VuFind\Translator')
-            ? $this->getServiceLocator()->get('VuFind\Translator')->translate($msg)
-            : $msg;
+        return $this->getViewRenderer()->plugin('translate')
+            ->__invoke($msg, $tokens, $default);
     }
 
     /**
@@ -271,13 +549,31 @@ class AbstractBase extends AbstractActionController
      *
      * @return mixed
      */
-    public function forwardTo($controller, $action, $params = array())
+    public function forwardTo($controller, $action, $params = [])
     {
         // Inject action into the RouteMatch parameters
         $params['action'] = $action;
 
         // Dispatch the requested controller/action:
         return $this->forward()->dispatch($controller, $params);
+    }
+
+    /**
+     * Check to see if a form was submitted from its post value
+     * Also validate the Captcha, if it's activated
+     *
+     * @param string  $submitElement Name of the post field of the submit button
+     * @param boolean $useRecaptcha  Are we using captcha in this situation?
+     *
+     * @return boolean
+     */
+    protected function formWasSubmitted($submitElement = 'submit',
+        $useRecaptcha = false
+    ) {
+        // Fail if the expected submission element was missing from the POST:
+        // Form was submitted; if CAPTCHA is expected, validate it now.
+        return $this->params()->fromPost($submitElement, false)
+            && (!$useRecaptcha || $this->recaptcha()->validate());
     }
 
     /**
@@ -291,20 +587,20 @@ class AbstractBase extends AbstractActionController
      *
      * @return mixed
      */
-    public function confirm($title, $yesTarget, $noTarget, $messages = array(),
-        $extras = array()
+    public function confirm($title, $yesTarget, $noTarget, $messages = [],
+        $extras = []
     ) {
         return $this->forwardTo(
             'Confirm', 'Confirm',
-            array(
-                'data' => array(
+            [
+                'data' => [
                     'title' => $title,
                     'confirm' => $yesTarget,
                     'cancel' => $noTarget,
                     'messages' => (array)$messages,
                     'extras' => $extras
-                )
-            )
+                ]
+            ]
         );
     }
 
@@ -319,5 +615,113 @@ class AbstractBase extends AbstractActionController
     protected function writeSession()
     {
         $this->getServiceLocator()->get('VuFind\SessionManager')->writeClose();
+    }
+
+    /**
+     * Get the search memory
+     *
+     * @return \VuFind\Search\Memory
+     */
+    public function getSearchMemory()
+    {
+        return $this->getServiceLocator()->get('VuFind\Search\Memory');
+    }
+
+    /**
+     * Are lists enabled?
+     *
+     * @return bool
+     */
+    protected function listsEnabled()
+    {
+        $check = $this->getServiceLocator()->get('VuFind\AccountCapabilities');
+        return $check->getListSetting() !== 'disabled';
+    }
+
+    /**
+     * Are tags enabled?
+     *
+     * @return bool
+     */
+    protected function tagsEnabled()
+    {
+        $check = $this->getServiceLocator()->get('VuFind\AccountCapabilities');
+        return $check->getTagSetting() !== 'disabled';
+    }
+
+    /**
+     * Store a referer (if appropriate) to keep post-login redirect pointing
+     * to an appropriate location. This is used when the user clicks the
+     * log in link from an arbitrary page or when a password is mistyped;
+     * separate logic is used for storing followup information when VuFind
+     * forces the user to log in from another context.
+     *
+     * @return void
+     */
+    protected function setFollowupUrlToReferer()
+    {
+        // Get the referer -- if it's empty, there's nothing to store!
+        $referer = $this->getRequest()->getServer()->get('HTTP_REFERER');
+        if (empty($referer)) {
+            return;
+        }
+        $refererNorm = $this->normalizeUrlForComparison($referer);
+
+        // If the referer lives outside of VuFind, don't store it! We only
+        // want internal post-login redirects.
+        $baseUrl = $this->getServerUrl('home');
+        $baseUrlNorm = $this->normalizeUrlForComparison($baseUrl);
+        if (0 !== strpos($refererNorm, $baseUrlNorm)) {
+            return;
+        }
+
+        // If the referer is the MyResearch/Home action, it probably means
+        // that the user is repeatedly mistyping their password. We should
+        // ignore this and instead rely on any previously stored referer.
+        $myResearchHomeUrl = $this->getServerUrl('myresearch-home');
+        $mrhuNorm = $this->normalizeUrlForComparison($myResearchHomeUrl);
+        if ($mrhuNorm === $refererNorm) {
+            return;
+        }
+
+        // If we got this far, we want to store the referer:
+        $this->followup()->store([], $referer);
+    }
+
+    /**
+     * Normalize the referer URL so that inconsistencies in protocol and trailing
+     * slashes do not break comparisons.
+     *
+     * @param string $url URL to normalize
+     *
+     * @return string
+     */
+    protected function normalizeUrlForComparison($url)
+    {
+        $parts = explode('://', $url, 2);
+        return trim(end($parts), '/');
+    }
+
+    /**
+     * Retrieve a referer to keep post-login redirect pointing
+     * to an appropriate location.
+     * Unset the followup before returning.
+     *
+     * @return string
+     */
+    protected function getFollowupUrl()
+    {
+        // followups aren't used in lightboxes.
+        return ($this->inLightbox()) ? '' : $this->followup()->retrieve('url', '');
+    }
+
+    /**
+     * Sometimes we need to unset the followup to trigger default behaviors
+     *
+     * @return void
+     */
+    protected function clearFollowupUrl()
+    {
+        $this->followup()->clear('url');
     }
 }

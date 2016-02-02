@@ -26,6 +26,7 @@
  * @link     http://www.vufind.org  Main Page
  */
 namespace VuFind\Search\Solr;
+use VuFindSearch\ParamBag;
 
 /**
  * Solr Search Parameters
@@ -39,11 +40,18 @@ namespace VuFind\Search\Solr;
 class Params extends \VuFind\Search\Base\Params
 {
     /**
-     * Facet result limit
+     * Default facet result limit
      *
      * @var int
      */
     protected $facetLimit = 30;
+
+    /**
+     * Per-field facet result limit
+     *
+     * @var array
+     */
+    protected $facetLimitByField = [];
 
     /**
      * Offset for facet results
@@ -67,6 +75,20 @@ class Params extends \VuFind\Search\Base\Params
     protected $facetSort = null;
 
     /**
+     * Sorting order of single facet by index
+     *
+     * @var array
+     */
+    protected $indexSortedFacets = null;
+
+    /**
+     * Fields for visual faceting
+     *
+     * @var string
+     */
+    protected $pivotFacets = null;
+
+    /**
      * Constructor
      *
      * @param \VuFind\Search\Base\Options  $options      Options to use
@@ -75,13 +97,24 @@ class Params extends \VuFind\Search\Base\Params
     public function __construct($options, \VuFind\Config\PluginManager $configLoader)
     {
         parent::__construct($options, $configLoader);
-
         // Use basic facet limit by default, if set:
-        $config = $configLoader->get('facets');
+        $config = $configLoader->get($options->getFacetsIni());
         if (isset($config->Results_Settings->facet_limit)
             && is_numeric($config->Results_Settings->facet_limit)
         ) {
             $this->setFacetLimit($config->Results_Settings->facet_limit);
+        }
+        if (isset($config->Results_Settings->facet_limit_by_field)) {
+            foreach ($config->Results_Settings->facet_limit_by_field as $k => $v) {
+                $this->facetLimitByField[$k] = $v;
+            }
+        }
+        if (isset($config->Results_Settings->sorted_by_index)
+            && count($config->Results_Settings->sorted_by_index) > 0
+        ) {
+            $this->setIndexSortedFacets(
+                $config->Results_Settings->sorted_by_index->toArray()
+            );
         }
     }
 
@@ -93,18 +126,40 @@ class Params extends \VuFind\Search\Base\Params
     public function getFilterSettings()
     {
         // Define Filter Query
-        $filterQuery = $this->getOptions()->getHiddenFilters();
-        foreach ($this->filterList as $field => $filter) {
+        $filterQuery = [];
+        $orFilters = [];
+        $filterList = array_merge(
+            $this->getHiddenFilters(),
+            $this->filterList
+        );
+        foreach ($filterList as $field => $filter) {
+            if ($orFacet = (substr($field, 0, 1) == '~')) {
+                $field = substr($field, 1);
+            }
             foreach ($filter as $value) {
-                // Special case -- allow trailing wildcards and ranges:
-                if (substr($value, -1) == '*'
+                // Special case -- complex filter, that should be taken as-is:
+                if ($field == '#') {
+                    $q = $value;
+                } else if (substr($value, -1) == '*'
                     || preg_match('/\[[^\]]+\s+TO\s+[^\]]+\]/', $value)
                 ) {
-                    $filterQuery[] = $field.':'.$value;
+                    // Special case -- allow trailing wildcards and ranges
+                    $q = $field . ':' . $value;
                 } else {
-                    $filterQuery[] = $field.':"'.addcslashes($value, '"\\').'"';
+                    $q = $field . ':"' . addcslashes($value, '"\\') . '"';
+                }
+                if ($orFacet) {
+                    $orFilters[$field] = isset($orFilters[$field])
+                        ? $orFilters[$field] : [];
+                    $orFilters[$field][] = $q;
+                } else {
+                    $filterQuery[] = $q;
                 }
             }
+        }
+        foreach ($orFilters as $field => $parts) {
+            $filterQuery[] = '{!tag=' . $field . '_filter}' . $field
+                . ':(' . implode(' OR ', $parts) . ')';
         }
         return $filterQuery;
     }
@@ -117,10 +172,18 @@ class Params extends \VuFind\Search\Base\Params
     public function getFacetSettings()
     {
         // Build a list of facets we want from the index
-        $facetSet = array();
+        $facetSet = [];
+
         if (!empty($this->facetConfig)) {
             $facetSet['limit'] = $this->facetLimit;
-            foreach ($this->facetConfig as $facetField => $facetName) {
+            foreach (array_keys($this->facetConfig) as $facetField) {
+                if (isset($this->facetLimitByField[$facetField])) {
+                    $facetSet["f.{$facetField}.facet.limit"]
+                        = $this->facetLimitByField[$facetField];
+                }
+                if ($this->getFacetOperator($facetField) == 'OR') {
+                    $facetField = '{!ex=' . $facetField . '_filter}' . $facetField;
+                }
                 $facetSet['field'][] = $facetField;
             }
             if ($this->facetOffset != null) {
@@ -129,14 +192,11 @@ class Params extends \VuFind\Search\Base\Params
             if ($this->facetPrefix != null) {
                 $facetSet['prefix'] = $this->facetPrefix;
             }
-            if ($this->facetSort != null) {
-                $facetSet['sort'] = $this->facetSort;
-            } else {
-                // No explicit setting? Set one based on the documented Solr behavior
-                // (index order for limit = -1, count order for limit > 0)
-                // Later Solr versions may have different defaults than earlier ones,
-                // so making this explicit ensures consistent behavior.
-                $facetSet['sort'] = ($this->facetLimit > 0) ? 'count' : 'index';
+            $facetSet['sort'] = $this->facetSort ?: 'count';
+            if ($this->indexSortedFacets != null) {
+                foreach ($this->indexSortedFacets as $field) {
+                    $facetSet["f.{$field}.facet.sort"] = 'index';
+                }
             }
         }
         return $facetSet;
@@ -211,28 +271,35 @@ class Params extends \VuFind\Search\Base\Params
     }
 
     /**
+     * Set Index Facet Sorting
+     *
+     * @param array $s the facets sorted by index
+     *
+     * @return void
+     */
+    public function setIndexSortedFacets(array $s)
+    {
+        $this->indexSortedFacets = $s;
+    }
+
+    /**
      * Initialize facet settings for the specified configuration sections.
      *
      * @param string $facetList     Config section containing fields to activate
      * @param string $facetSettings Config section containing related settings
+     * @param string $cfgFile       Name of configuration to load
      *
      * @return bool                 True if facets set, false if no settings found
      */
-    protected function initFacetList($facetList, $facetSettings)
+    protected function initFacetList($facetList, $facetSettings, $cfgFile = 'facets')
     {
         $config = $this->getServiceLocator()->get('VuFind\Config')->get('facets');
-        if (!isset($config->$facetList)) {
-            return false;
-        }
-        foreach ($config->$facetList as $key => $value) {
-            $this->addFacet($key, $value);
-        }
         if (isset($config->$facetSettings->facet_limit)
             && is_numeric($config->$facetSettings->facet_limit)
         ) {
             $this->setFacetLimit($config->$facetSettings->facet_limit);
         }
-        return true;
+        return parent::initFacetList($facetList, $facetSettings, $cfgFile);
     }
 
     /**
@@ -265,17 +332,8 @@ class Params extends \VuFind\Search\Base\Params
      */
     public function initBasicFacets()
     {
-        $config = $this->getServiceLocator()->get('VuFind\Config')->get('facets');
-        if (isset($config->ResultsTop)) {
-            foreach ($config->ResultsTop as $key => $value) {
-                $this->addFacet($key, $value);
-            }
-        }
-        if (isset($config->Results)) {
-            foreach ($config->Results as $key => $value) {
-                $this->addFacet($key, $value);
-            }
-        }
+        $this->initFacetList('ResultsTop', 'Results_Settings');
+        $this->initFacetList('Results', 'Results_Settings');
     }
 
     /**
@@ -325,14 +383,6 @@ class Params extends \VuFind\Search\Base\Params
             $this->addFilter('illustrated:"Not Illustrated"');
             break;
         }
-
-        // Check for hidden filters:
-        $hidden = $request->get('hiddenFilters');
-        if (!empty($hidden) && is_array($hidden)) {
-            foreach ($hidden as $current) {
-                $this->getOptions()->addHiddenFilter($current);
-            }
-        }
     }
 
     /**
@@ -372,5 +422,201 @@ class Params extends \VuFind\Search\Base\Params
         $config = $this->getServiceLocator()->get('VuFind\Config')->get('config');
         return isset($config->Index->maxBooleanClauses)
             ? $config->Index->maxBooleanClauses : 1024;
+    }
+
+    /**
+     * Normalize sort parameters.
+     *
+     * @param string $sort Sort parameter
+     *
+     * @return string
+     */
+    protected function normalizeSort($sort)
+    {
+        static $table = [
+            'year' => ['field' => 'publishDateSort', 'order' => 'desc'],
+            'publishDateSort' => ['field' => 'publishDateSort', 'order' => 'desc'],
+            'author' => ['field' => 'authorStr', 'order' => 'asc'],
+            'title' => ['field' => 'title_sort', 'order' => 'asc'],
+            'relevance' => ['field' => 'score', 'order' => 'desc'],
+            'callnumber' => ['field' => 'callnumber-sort', 'order' => 'asc'],
+        ];
+        $normalized = [];
+        foreach (explode(',', $sort) as $component) {
+            $parts = explode(' ', trim($component));
+            $field = reset($parts);
+            $order = next($parts);
+            if (isset($table[$field])) {
+                $normalized[] = sprintf(
+                    '%s %s',
+                    $table[$field]['field'],
+                    $order ?: $table[$field]['order']
+                );
+            } else {
+                $normalized[] = sprintf(
+                    '%s %s',
+                    $field,
+                    $order ?: 'asc'
+                );
+            }
+        }
+        return implode(',', $normalized);
+    }
+
+    /**
+     * Create search backend parameters for advanced features.
+     *
+     * @return ParamBag
+     */
+    public function getBackendParameters()
+    {
+        $backendParams = new ParamBag();
+
+        // Spellcheck
+        $backendParams->set(
+            'spellcheck', $this->getOptions()->spellcheckEnabled() ? 'true' : 'false'
+        );
+
+        // Facets
+        $facets = $this->getFacetSettings();
+        if (!empty($facets)) {
+            $backendParams->add('facet', 'true');
+
+            foreach ($facets as $key => $value) {
+                // prefix keys with "facet" unless they already have a "f." prefix:
+                $fullKey = substr($key, 0, 2) == 'f.' ? $key : "facet.$key";
+                $backendParams->add($fullKey, $value);
+            }
+            $backendParams->add('facet.mincount', 1);
+        }
+
+        // Filters
+        $filters = $this->getFilterSettings();
+        foreach ($filters as $filter) {
+            $backendParams->add('fq', $filter);
+        }
+
+        // Shards
+        $allShards = $this->getOptions()->getShards();
+        $shards = $this->getSelectedShards();
+        if (empty($shards)) {
+            $shards = array_keys($allShards);
+        }
+
+        // If we have selected shards, we need to format them:
+        if (!empty($shards)) {
+            $selectedShards = [];
+            foreach ($shards as $current) {
+                $selectedShards[$current] = $allShards[$current];
+            }
+            $shards = $selectedShards;
+            $backendParams->add('shards', implode(',', $selectedShards));
+        }
+
+        // Sort
+        $sort = $this->getSort();
+        if ($sort) {
+            // If we have an empty search with relevance sort, see if there is
+            // an override configured:
+            if ($sort == 'relevance' && $this->getQuery()->getAllTerms() == ''
+                && ($relOv = $this->getOptions()->getEmptySearchRelevanceOverride())
+            ) {
+                $sort = $relOv;
+            }
+            $backendParams->add('sort', $this->normalizeSort($sort));
+        }
+
+        // Highlighting -- on by default, but we should disable if necessary:
+        if (!$this->getOptions()->highlightEnabled()) {
+            $backendParams->add('hl', 'false');
+        }
+
+        // Pivot facets for visual results
+
+        if ($pf = $this->getPivotFacets()) {
+            $backendParams->add('facet.pivot', $pf);
+        }
+
+        return $backendParams;
+    }
+
+    /**
+     * Set pivot facet fields to use for visual results
+     *
+     * @param string $facets A comma-separated list of fields
+     *
+     * @return void
+     */
+    public function setPivotFacets($facets)
+    {
+        $this->pivotFacets = $facets;
+    }
+
+    /**
+     * Get pivot facet information for visual facets
+     *
+     * @return string
+     */
+    public function getPivotFacets()
+    {
+        return $this->pivotFacets;
+    }
+
+    /**
+     * Format a single filter for use in getFilterList().
+     *
+     * @param string $field     Field name
+     * @param string $value     Field value
+     * @param string $operator  Operator (AND/OR/NOT)
+     * @param bool   $translate Should we translate the label?
+     *
+     * @return array
+     */
+    protected function formatFilterListEntry($field, $value, $operator, $translate)
+    {
+        $filter = parent::formatFilterListEntry(
+            $field, $value, $operator, $translate
+        );
+
+        $hierarchicalFacets = $this->getOptions()->getHierarchicalFacets();
+        $hierarchicalFacetSeparators
+            = $this->getOptions()->getHierarchicalFacetSeparators();
+        $facetHelper = null;
+        if (!empty($hierarchicalFacets)) {
+            $facetHelper = $this->getServiceLocator()
+                ->get('VuFind\HierarchicalFacetHelper');
+        }
+        // Convert range queries to a language-non-specific format:
+        $caseInsensitiveRegex = '/^\(\[(.*) TO (.*)\] OR \[(.*) TO (.*)\]\)$/';
+        if (preg_match('/^\[(.*) TO (.*)\]$/', $value, $matches)) {
+            // Simple case: [X TO Y]
+            $filter['displayText'] = $matches[1] . '-' . $matches[2];
+        } else if (preg_match($caseInsensitiveRegex, $value, $matches)) {
+            // Case insensitive case: [x TO y] OR [X TO Y]; convert
+            // only if values in both ranges match up!
+            if (strtolower($matches[3]) == strtolower($matches[1])
+                && strtolower($matches[4]) == strtolower($matches[2])
+            ) {
+                $filter['displayText'] = $matches[1] . '-' . $matches[2];
+            }
+        } else if (in_array($field, $hierarchicalFacets)) {
+            // Display hierarchical facet levels nicely
+            $separator = isset($hierarchicalFacetSeparators[$field])
+                ? $hierarchicalFacetSeparators[$field]
+                : '/';
+            $filter['displayText'] = $facetHelper->formatDisplayText(
+                $filter['displayText'], true, $separator
+            );
+            if ($translate) {
+                $domain = $this->getOptions()->getTextDomainForTranslatedFacet(
+                    $field
+                );
+                $filter['displayText'] = $this->translate(
+                    [$domain, $filter['displayText']]
+                );
+            }
+        }
+
+        return $filter;
     }
 }

@@ -26,7 +26,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindSearch\Backend\Solr\Response\Json;
 
 use VuFindSearch\Response\AbstractRecordCollection;
@@ -49,12 +48,12 @@ class RecordCollection extends AbstractRecordCollection
      *
      * @var array
      */
-    protected static $template = array(
-        'responseHeader' => array(),
-        'response'       => array('start' => 0),
-        'spellcheck'     => array('suggestions' => array()),
-        'facet_counts'   => array(),
-    );
+    protected static $template = [
+        'responseHeader' => [],
+        'response'       => ['numFound' => 0, 'start' => 0],
+        'spellcheck'     => ['suggestions' => []],
+        'facet_counts'   => [],
+    ];
 
     /**
      * Deserialized SOLR response.
@@ -87,6 +86,7 @@ class RecordCollection extends AbstractRecordCollection
     public function __construct(array $response)
     {
         $this->response = array_replace_recursive(static::$template, $response);
+        $this->offset = $this->response['response']['start'];
         $this->rewind();
     }
 
@@ -98,8 +98,9 @@ class RecordCollection extends AbstractRecordCollection
     public function getSpellcheck()
     {
         if (!$this->spellcheck) {
-            $this->spellcheck
-                = new Spellcheck($this->response['spellcheck']['suggestions']);
+            $this->spellcheck = new Spellcheck(
+                $this->getRawSpellcheckSuggestions(), $this->getSpellcheckQuery()
+            );
         }
         return $this->spellcheck;
     }
@@ -135,7 +136,7 @@ class RecordCollection extends AbstractRecordCollection
     public function getGroups()
     {
         return isset($this->response['grouped'])
-            ? $this->response['grouped'] : array();
+            ? $this->response['grouped'] : [];
     }
 
     /**
@@ -146,16 +147,41 @@ class RecordCollection extends AbstractRecordCollection
     public function getHighlighting()
     {
         return isset($this->response['highlighting'])
-            ? $this->response['highlighting'] : array();
+            ? $this->response['highlighting'] : [];
     }
 
     /**
-     * Return offset in the total search result set.
+     * Get raw Solr input parameters from the response.
      *
-     * @return int
+     * @return array
      */
-    public function getOffset()
+    protected function getSolrParameters()
     {
-        return $this->response['response']['start'];
+        return isset($this->response['responseHeader']['params'])
+            ? $this->response['responseHeader']['params'] : [];
+    }
+
+    /**
+     * Extract the best matching Spellcheck query from the raw Solr input parameters.
+     *
+     * @return string
+     */
+    protected function getSpellcheckQuery()
+    {
+        $params = $this->getSolrParameters();
+        return isset($params['spellcheck.q'])
+            ? $params['spellcheck.q']
+            : (isset($params['q']) ? $params['q'] : '');
+    }
+
+    /**
+     * Get raw Solr Spellcheck suggestions.
+     *
+     * @return array
+     */
+    protected function getRawSpellcheckSuggestions()
+    {
+        return isset($this->response['spellcheck']['suggestions'])
+            ? $this->response['spellcheck']['suggestions'] : [];
     }
 }

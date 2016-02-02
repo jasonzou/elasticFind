@@ -26,7 +26,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindSearch\Backend\Solr\Response\Json;
 
 use Countable, Iterator;
@@ -43,7 +42,6 @@ use Countable, Iterator;
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  * @see      http://wiki.apache.org/solr/SolJSON
- *
  */
 class NamedList implements Countable, Iterator
 {
@@ -55,6 +53,13 @@ class NamedList implements Countable, Iterator
     protected $list;
 
     /**
+     * The current position
+     *
+     * @var array
+     */
+    protected $current = null;
+
+    /**
      * Constructor.
      *
      * @param array $list Named list
@@ -64,6 +69,20 @@ class NamedList implements Countable, Iterator
     public function __construct(array $list)
     {
         $this->list = $list;
+    }
+
+    /**
+     * Convert the named list into a standard associative array.
+     *
+     * @return array
+     */
+    public function toArray()
+    {
+        $arr = [];
+        foreach ($this as $k => $v) {
+            $arr[$k] = $v;
+        }
+        return $arr;
     }
 
     /// Countable
@@ -129,5 +148,15 @@ class NamedList implements Countable, Iterator
     {
         reset($this->list);
         $this->current = current($this->list);
+    }
+
+    /**
+     * Remove element from list.
+     *
+     * @return void
+     */
+    public function remove()
+    {
+        unset($this->list[key($this->list)]);
     }
 }

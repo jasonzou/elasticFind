@@ -50,8 +50,6 @@ class PluginManager extends \VuFind\ServiceManager\AbstractPluginManager
     }
 
     /**
-     * getSuggestions
-     *
      * This returns an array of suggestions based on current request parameters.
      * This logic is present in the factory class so that it can be easily shared
      * by multiple AJAX handlers.
@@ -70,11 +68,12 @@ class PluginManager extends \VuFind\ServiceManager\AbstractPluginManager
         $type = $request->get($typeParam, '');
         $query = $request->get($queryParam, '');
         $searcher = $request->get('searcher', 'Solr');
+        $hiddenFilters = $request->get('hiddenFilters', []);
 
         // If we're using a combined search box, we need to override the searcher
         // and type settings.
         if (substr($type, 0, 7) == 'VuFind:') {
-            list($junk, $tmp) = explode(':', $type, 2);
+            list(, $tmp) = explode(':', $type, 2);
             list($searcher, $type) = explode('|', $tmp, 2);
         }
 
@@ -84,7 +83,7 @@ class PluginManager extends \VuFind\ServiceManager\AbstractPluginManager
         $config = $this->getServiceLocator()->get('VuFind\Config')
             ->get($options->getSearchIni());
         $types = isset($config->Autocomplete_Types) ?
-            $config->Autocomplete_Types->toArray() : array();
+            $config->Autocomplete_Types->toArray() : [];
 
         // Figure out which handler to use:
         if (!empty($type) && isset($types[$type])) {
@@ -105,7 +104,11 @@ class PluginManager extends \VuFind\ServiceManager\AbstractPluginManager
             $handler->setConfig($params);
         }
 
+        if (is_callable([$handler, 'addFilters'])) {
+            $handler->addFilters($hiddenFilters);
+        }
+
         return (isset($handler) && is_object($handler))
-            ? array_values($handler->getSuggestions($query)) : array();
+            ? array_values($handler->getSuggestions($query)) : [];
     }
 }

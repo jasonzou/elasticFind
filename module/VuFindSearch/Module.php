@@ -26,11 +26,7 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindSearch;
-
-use Zend\ServiceManager\ServiceManager;
-use Zend\EventManager\EventManager;
 
 /**
  * ZF2 module definition for the VF2 search service.
@@ -60,7 +56,6 @@ use Zend\EventManager\EventManager;
  */
 class Module
 {
-
     /**
      * Return autoloader configuration.
      *
@@ -68,42 +63,12 @@ class Module
      */
     public function getAutoloaderConfig()
     {
-        return array(
-            'Zend\Loader\StandardAutoloader' => array(
-                'namespaces' => array(
+        return [
+            'Zend\Loader\StandardAutoloader' => [
+                'namespaces' => [
                     __NAMESPACE__ => __DIR__ . '/src/' . __NAMESPACE__,
-                ),
-            ),
-        );
-    }
-
-    /**
-     * Return service configuration.
-     *
-     * @return array
-     */
-    public function getServiceConfig()
-    {
-        return array(
-            'factories' => array(
-                'VuFind\Search' => array($this, 'setup'),
-            )
-        );
-    }
-
-    /**
-     * Return configured search service to superior service manager.
-     *
-     * @param ServiceManager $sm Service manager
-     *
-     * @return SearchService
-     */
-    public function setup(ServiceManager $sm)
-    {
-        $service = new Service();
-        if ($sm->has('VuFind\Logger')) {
-            $service->setLogger($sm->get('VuFind\Logger'));
-        }
-        return $service;
+                ],
+            ],
+        ];
     }
 }

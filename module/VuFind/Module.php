@@ -26,8 +26,7 @@
  * @link     http://vufind.org
  */
 namespace VuFind;
-use Zend\ModuleManager\ModuleManager,
-    Zend\Mvc\MvcEvent;
+use Zend\Mvc\MvcEvent;
 
 /**
  * ZF2 module definition for the VuFind application
@@ -57,29 +56,18 @@ class Module
      */
     public function getAutoloaderConfig()
     {
-        return array(
-            'Zend\Loader\ClassMapAutoloader' => array(
-                'classes' => array(
+        return [
+            'Zend\Loader\ClassMapAutoloader' => [
+                'classes' => [
                     'minSO' => __DIR__ . '/src/VuFind/Search/minSO.php'
-                )
-            ),
-            'Zend\Loader\StandardAutoloader' => array(
-                'namespaces' => array(
+                ]
+            ],
+            'Zend\Loader\StandardAutoloader' => [
+                'namespaces' => [
                     __NAMESPACE__ => __DIR__ . '/src/' . __NAMESPACE__,
-                ),
-            ),
-        );
-    }
-
-    /**
-     * Initialize the module
-     *
-     * @param ModuleManager $m Module manager
-     *
-     * @return void
-     */
-    public function init(ModuleManager $m)
-    {
+                ],
+            ],
+        ];
     }
 
     /**

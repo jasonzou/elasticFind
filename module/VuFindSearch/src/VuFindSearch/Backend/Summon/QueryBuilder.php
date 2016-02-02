@@ -28,8 +28,9 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindSearch\Backend\Summon;
+
+use VuFindSearch\Backend\Solr\LuceneSyntaxHelper;
 
 use VuFindSearch\Query\AbstractQuery;
 use VuFindSearch\Query\QueryGroup;
@@ -38,8 +39,7 @@ use VuFindSearch\Query\Query;
 use VuFindSearch\ParamBag;
 
 /**
- * Summon QueryBuilder.  (Currently extends Solr query builder for access to
- * capitalizeBooleans() support method).
+ * Summon QueryBuilder.
  *
  * @category VuFind2
  * @package  Search
@@ -49,16 +49,16 @@ use VuFindSearch\ParamBag;
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-class QueryBuilder extends \VuFindSearch\Backend\Solr\QueryBuilder
+class QueryBuilder
 {
-    /// Public API
-
     /**
-     * Constructor
+     * Lucene syntax helper
+     *
+     * @var LuceneSyntaxHelper
      */
-    public function __construct()
-    {
-    }
+    protected $luceneHelper = null;
+
+    /// Public API
 
     /**
      * Return Summon search parameters based on a user query and params.
@@ -105,12 +105,12 @@ class QueryBuilder extends \VuFindSearch\Backend\Solr\QueryBuilder
      */
     protected function queryGroupToString(QueryGroup $query)
     {
-        $groups = $excludes = array();
+        $groups = $excludes = [];
 
         foreach ($query->getQueries() as $params) {
             // Advanced Search
             if ($params instanceof QueryGroup) {
-                $thisGroup = array();
+                $thisGroup = [];
                 // Process each search group
                 foreach ($params->getQueries() as $group) {
                     // Build this group individually as a basic search
@@ -121,7 +121,7 @@ class QueryBuilder extends \VuFindSearch\Backend\Solr\QueryBuilder
                     $excludes[] = join(" OR ", $thisGroup);
                 } else {
                     $groups[]
-                        = join(" ".$params->getOperator()." ", $thisGroup);
+                        = join(" " . $params->getOperator() . " ", $thisGroup);
                 }
             } else {
                 // Basic Search
@@ -158,12 +158,36 @@ class QueryBuilder extends \VuFindSearch\Backend\Solr\QueryBuilder
 
         // Force boolean operators to uppercase if we are in a
         // case-insensitive mode:
-        if (!$this->caseSensitiveBooleans) {
-            $lookfor = $this->capitalizeBooleans($lookfor);
-        }
+        $lookfor = $this->getLuceneHelper()
+            ->capitalizeCaseInsensitiveBooleans($lookfor);
 
         // Prepend the index name, unless it's the special "AllFields"
         // index:
         return ($index != 'AllFields') ? "{$index}:($lookfor)" : $lookfor;
+    }
+
+    /**
+     * Get Lucene syntax helper
+     *
+     * @return LuceneSyntaxHelper
+     */
+    public function getLuceneHelper()
+    {
+        if (null === $this->luceneHelper) {
+            $this->luceneHelper = new LuceneSyntaxHelper();
+        }
+        return $this->luceneHelper;
+    }
+
+    /**
+     * Set Lucene syntax helper
+     *
+     * @param LuceneSyntaxHelper $helper Lucene syntax helper
+     *
+     * @return void
+     */
+    public function setLuceneHelper(LuceneSyntaxHelper $helper)
+    {
+        $this->luceneHelper = $helper;
     }
 }

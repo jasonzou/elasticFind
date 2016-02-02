@@ -64,7 +64,7 @@ class AdapterFactory
      * @param string $overridePass Password override (leave null to use password
      * from config.ini)
      *
-     * @return object
+     * @return Adapter
      */
     public function getAdapter($overrideUser = null, $overridePass = null)
     {
@@ -99,18 +99,18 @@ class AdapterFactory
      *
      * @param array $options Options for building adapter
      *
-     * @return object
+     * @return Adapter
      */
     public function getAdapterFromOptions($options)
-    {       
+    {
         // Set up custom options by database type:
         $driver = strtolower($options['driver']);
         switch ($driver) {
         case 'mysqli':
             $options['charset'] = isset($this->config->Database->charset)
                 ? $this->config->Database->charset : 'utf8';
-            $options['options'] = array('buffer_results' => true);
-            break; 
+            $options['options'] = ['buffer_results' => true];
+            break;
         }
 
         // Set up database connection:
@@ -122,7 +122,7 @@ class AdapterFactory
             $statement = $adapter->createStatement(
                 'SET search_path TO ' . $this->config->Database->schema
             );
-            $result = $statement->execute();
+            $statement->execute();
         }
 
         return $adapter;
@@ -138,7 +138,7 @@ class AdapterFactory
      * @param string $overridePass     Password override (leave null to use password
      * from connection string)
      *
-     * @return object
+     * @return Adapter
      */
     public function getAdapterFromConnectionString($connectionString,
         $overrideUser = null, $overridePass = null
@@ -158,13 +158,13 @@ class AdapterFactory
         $password = !is_null($overridePass) ? $overridePass : $password;
 
         // Set up default options:
-        $options = array(
+        $options = [
             'driver' => $this->getDriverName($type),
             'hostname' => $host,
             'username' => $username,
             'password' => $password,
             'database' => $dbName
-        );
+        ];
 
         return $this->getAdapterFromOptions($options);
     }

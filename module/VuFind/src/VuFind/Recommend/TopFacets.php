@@ -40,7 +40,7 @@ namespace VuFind\Recommend;
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
  */
-class TopFacets implements RecommendInterface
+class TopFacets extends AbstractFacets
 {
     /**
      * Facet configuration
@@ -57,32 +57,6 @@ class TopFacets implements RecommendInterface
     protected $baseSettings;
 
     /**
-     * Search results
-     *
-     * @var \VuFind\Search\Base\Results
-     */
-    protected $results;
-
-    /**
-     * Configuration loader
-     *
-     * @var \VuFind\Config\PluginManager
-     */
-    protected $configLoader;
-
-    /**
-     * Constructor
-     *
-     * @param \VuFind\Config\PluginManager $configLoader Configuration loader
-     */
-    public function __construct(\VuFind\Config\PluginManager $configLoader)
-    {
-        $this->configLoader = $configLoader;
-    }
-
-    /**
-     * setConfig
-     *
      * Store the configuration of the recommendation module.
      *
      * TopFacets:[ini section]:[ini name]
@@ -96,24 +70,25 @@ class TopFacets implements RecommendInterface
     public function setConfig($settings)
     {
         $settings = explode(':', $settings);
-        $mainSection = empty($settings[0]) ? 'ResultsTop':$settings[0];
+        $mainSection = empty($settings[0]) ? 'ResultsTop' : $settings[0];
         $iniName = isset($settings[1]) ? $settings[1] : 'facets';
 
         // Load the desired facet information:
         $config = $this->configLoader->get($iniName);
         $this->facets = isset($config->$mainSection)
-            ? $config->$mainSection->toArray() : array();
+            ? $config->$mainSection->toArray() : [];
 
         // Load other relevant settings:
-        $this->baseSettings = array(
+        $this->baseSettings = [
             'rows' => $config->Results_Settings->top_rows,
             'cols' => $config->Results_Settings->top_cols
-        );
+        ];
+
+        // Load boolean configurations:
+        $this->loadBooleanConfigs($config, array_keys($this->facets));
     }
 
     /**
-     * init
-     *
      * Called at the end of the Search Params objects' initFromRequest() method.
      * This method is responsible for setting search parameters needed by the
      * recommendation module and for reading any existing search parameters that may
@@ -129,34 +104,8 @@ class TopFacets implements RecommendInterface
     {
         // Turn on top facets in the search results:
         foreach ($this->facets as $name => $desc) {
-            $params->addFacet($name, $desc);
+            $params->addFacet($name, $desc, in_array($name, $this->orFacets));
         }
-    }
-
-    /**
-     * process
-     *
-     * Called after the Search Results object has performed its main search.  This
-     * may be used to extract necessary information from the Search Results object
-     * or to perform completely unrelated processing.
-     *
-     * @param \VuFind\Search\Base\Results $results Search results object
-     *
-     * @return void
-     */
-    public function process($results)
-    {
-        $this->results = $results;
-    }
-
-    /**
-     * Get results stored in the object.
-     *
-     * @return \VuFind\Search\Base\Results
-     */
-    public function getResults()
-    {
-        return $this->results;
     }
 
     /**

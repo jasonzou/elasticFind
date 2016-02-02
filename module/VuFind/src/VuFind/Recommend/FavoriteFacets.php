@@ -26,6 +26,7 @@
  * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
  */
 namespace VuFind\Recommend;
+use VuFind\Search\Solr\HierarchicalFacetHelper;
 
 /**
  * FavoriteFacets Recommendations Module
@@ -41,8 +42,30 @@ namespace VuFind\Recommend;
 class FavoriteFacets extends SideFacets
 {
     /**
-     * setConfig
+     * Tag capability setting
      *
+     * @var string
+     */
+    protected $tagSetting;
+
+    /**
+     * Constructor
+     *
+     * @param \VuFind\Config\PluginManager $configLoader Configuration loader
+     * @param HierarchicalFacetHelper      $facetHelper  Helper for handling
+     * hierarchical facets
+     * @param string                       $tagSetting   Tag capability setting
+     */
+    public function __construct(
+        \VuFind\Config\PluginManager $configLoader,
+        HierarchicalFacetHelper $facetHelper = null,
+        $tagSetting = 'enabled'
+    ) {
+        parent::__construct($configLoader, $facetHelper);
+        $this->tagSetting = $tagSetting;
+    }
+
+    /**
      * Store the configuration of the recommendation module.
      *
      * @param string $settings Settings from searches.ini.
@@ -51,6 +74,8 @@ class FavoriteFacets extends SideFacets
      */
     public function setConfig($settings)
     {
-        $this->mainFacets = array('lists' => 'Your Lists', 'tags' => 'Your Tags');
+        // Only display tags when enabled:
+        $this->mainFacets = ($this->tagSetting !== 'disabled')
+            ? ['tags' => 'Your Tags'] : [];
     }
 }

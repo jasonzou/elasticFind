@@ -26,7 +26,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindTest\Backend\Solr;
 
 use VuFindSearch\Backend\Solr\SearchHandler;
@@ -50,8 +49,85 @@ class SearchHandlerTest extends PHPUnit_Framework_TestCase
      */
     public function testSimpleSearchDismax()
     {
-        $spec = array('DismaxParams' => array(array('foo', 'bar')), 'DismaxFields' => array('field1', 'field2'));
+        $spec = ['DismaxParams' => [['foo', 'bar']], 'DismaxFields' => ['field1', 'field2']];
         $hndl = new SearchHandler($spec);
         $this->assertEquals('(_query_:"{!dismax qf=\"field1 field2\" foo=\\\'bar\\\'}foobar")', $hndl->createSimpleQueryString('foobar'));
+    }
+
+    /**
+     * Test creating simple standard query.
+     *
+     * @return void
+     */
+    public function testSimpleStandardSearch()
+    {
+        $spec = ['QueryFields' => ['id' => [['or', '~']]]];
+        $hndl = new SearchHandler($spec);
+        $this->assertEquals('(id:("escaped\"quote" OR not OR quoted OR "basic phrase"))', $hndl->createSimpleQueryString('"escaped\"quote" not quoted "basic phrase"'));
+    }
+    /**
+     * Test toArray() method.
+     *
+     * @return void
+     */
+    public function testToArray()
+    {
+        $spec = ['DismaxParams' => [['foo', 'bar']], 'DismaxFields' => ['field1', 'field2']];
+        $hndl = new SearchHandler($spec);
+        $defaults = ['CustomMunge' => [], 'DismaxHandler' => 'dismax', 'QueryFields' => [], 'FilterQuery' => []];
+        $this->assertEquals($spec + $defaults, $hndl->toArray());
+    }
+
+    /**
+     * Test creating extended dismax query.
+     *
+     * @return void
+     */
+    public function testSimpleSearchExtendedDismax()
+    {
+        $spec = ['DismaxParams' => [['foo', 'bar']], 'DismaxFields' => ['field1', 'field2']];
+        $hndl = new SearchHandler($spec, 'edismax');
+        $this->assertEquals('(_query_:"{!edismax qf=\"field1 field2\" foo=\\\'bar\\\'}foobar")', $hndl->createSimpleQueryString('foobar'));
+    }
+
+    /**
+     * Test custom munge rules.
+     *
+     * @return void
+     */
+    public function testCustomMunge()
+    {
+        // fake munge rules based on a simplified version of default searchspecs.yaml
+        $spec = [
+            'CustomMunge' => [
+                'callnumber_exact' => [
+                    ['uppercase'],
+                    ['preg_replace', '/[ "]/', ""],
+                    ['preg_replace', '/\*+$/', ""]
+                ],
+                'callnumber_fuzzy' => [
+                    ['uppercase'],
+                    ['preg_replace', '/[ "]/', ""],
+                    ['preg_replace', '/\*+$/', ""],
+                    ['append', '*']
+                ]
+            ],
+            'QueryFields' => [
+                'callnumber' => [
+                    ['callnumber_exact', 1000],
+                    ['callnumber_fuzzy', '~'],
+                ],
+                'dewey-full' => [
+                    ['callnumber_exact', 1000],
+                    ['callnumber_fuzzy', '~'],
+                ]
+            ]
+        ];
+
+        $hndl = new SearchHandler($spec);
+        $this->assertEquals(
+            '(callnumber:(ABC123)^1000 OR callnumber:(ABC123*) OR dewey-full:(ABC123)^1000 OR dewey-full:(ABC123*))',
+            $hndl->createSimpleQueryString('abc"123*')
+        );
     }
 }

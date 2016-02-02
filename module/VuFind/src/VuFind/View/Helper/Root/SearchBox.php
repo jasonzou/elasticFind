@@ -54,15 +54,54 @@ class SearchBox extends \Zend\View\Helper\AbstractHelper
     protected $optionsManager;
 
     /**
+     * Cache for configurations
+     *
+     * @var array
+     */
+    protected $cachedConfigs = [];
+
+    /**
      * Constructor
      *
      * @param OptionsManager $optionsManager Search options plugin manager
      * @param array          $config         Configuration for search box
      */
-    public function __construct(OptionsManager $optionsManager, $config = array())
+    public function __construct(OptionsManager $optionsManager, $config = [])
     {
         $this->optionsManager = $optionsManager;
         $this->config = $config;
+    }
+
+    /**
+     * Is autocomplete enabled for the current context?
+     *
+     * @param string $activeSearchClass Active search class ID
+     *
+     * @return bool
+     */
+    public function autocompleteEnabled($activeSearchClass)
+    {
+        // Simple case -- no combined handlers:
+        if (!$this->combinedHandlersActive()) {
+            $options = $this->optionsManager->get($activeSearchClass);
+            return $options->autocompleteEnabled();
+        }
+
+        // Complex case -- combined handlers:
+        $settings = $this->getCombinedHandlerConfig($activeSearchClass);
+        $typeCount = count($settings['type']);
+        for ($i = 0; $i < $typeCount; $i++) {
+            $type = $settings['type'][$i];
+            $target = $settings['target'][$i];
+
+            if ($type == 'VuFind') {
+                $options = $this->optionsManager->get($target);
+                if ($options->autocompleteEnabled()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -88,26 +127,32 @@ class SearchBox extends \Zend\View\Helper\AbstractHelper
      */
     public function getFilterDetails($filterList, $checkboxFilters)
     {
-        $results = array();
-        $i = 0;
+        $results = [];
         foreach ($filterList as $field => $data) {
             foreach ($data as $value) {
-                $results[] = array(
-                    'id' => 'applied_filter_' . ++$i,
-                    'value' => "$field:\"$value\""
-                );
+                $results[] = "$field:\"$value\"";
             }
         }
-        $i = 0;
         foreach ($checkboxFilters as $current) {
-            if ($current['selected']) {
-                $results[] = array(
-                    'id' => 'applied_checkbox_filter_' . ++$i,
-                    'value' => $current['filter']
-                );
+            // Check a normalized version of the checkbox facet against the existing
+            // filter list to avoid unnecessary duplication. Note that we don't
+            // actually use this normalized version for anything beyond dupe-checking
+            // in case it breaks advanced syntax.
+            $regex = '/^([^:]*):([^"].*[^"]|[^"]{1,2})$/';
+            $normalized
+                = preg_match($regex, $current['filter'], $match)
+                ? "{$match[1]}:\"{$match[2]}\"" : $current['filter'];
+            if ($current['selected'] && !in_array($normalized, $results)
+                && !in_array($current['filter'], $results)
+            ) {
+                $results[] = $current['filter'];
             }
         }
-        return $results;
+        $final = [];
+        foreach ($results as $i => $val) {
+            $final[] = ['id' => 'applied_filter_' . ($i + 1), 'value' => $val];
+        }
+        return $final;
     }
 
     /**
@@ -137,13 +182,13 @@ class SearchBox extends \Zend\View\Helper\AbstractHelper
      */
     protected function getBasicHandlers($activeSearchClass, $activeHandler)
     {
-        $handlers = array();
+        $handlers = [];
         $options = $this->optionsManager->get($activeSearchClass);
         foreach ($options->getBasicHandlers() as $searchVal => $searchDesc) {
-            $handlers[] = array(
+            $handlers[] = [
                 'value' => $searchVal, 'label' => $searchDesc, 'indent' => false,
                 'selected' => ($activeHandler == $searchVal)
-            );
+            ];
         }
         return $handlers;
     }
@@ -157,28 +202,32 @@ class SearchBox extends \Zend\View\Helper\AbstractHelper
      */
     protected function getCombinedHandlerConfig($activeSearchClass)
     {
-        // Load and validate configuration:
-        $settings = isset($this->config['CombinedHandlers'])
-            ? $this->config['CombinedHandlers'] : array();
-        if (empty($settings)) {
-            throw new \Exception('CombinedHandlers configuration missing.');
-        }
-        $typeCount = count($settings['type']);
-        if ($typeCount != count($settings['target'])
-            || $typeCount != count($settings['label'])
-        ) {
-            throw new \Exception('CombinedHandlers configuration incomplete.');
+        if (!isset($this->cachedConfigs[$activeSearchClass])) {
+            // Load and validate configuration:
+            $settings = isset($this->config['CombinedHandlers'])
+                ? $this->config['CombinedHandlers'] : [];
+            if (empty($settings)) {
+                throw new \Exception('CombinedHandlers configuration missing.');
+            }
+            $typeCount = count($settings['type']);
+            if ($typeCount != count($settings['target'])
+                || $typeCount != count($settings['label'])
+            ) {
+                throw new \Exception('CombinedHandlers configuration incomplete.');
+            }
+
+            // Add configuration for the current search class if it is not already
+            // present:
+            if (!in_array($activeSearchClass, $settings['target'])) {
+                $settings['type'][] = 'VuFind';
+                $settings['target'][] = $activeSearchClass;
+                $settings['label'][] = $activeSearchClass;
+            }
+
+            $this->cachedConfigs[$activeSearchClass] = $settings;
         }
 
-        // Add configuration for the current search class if it is not already
-        // present:
-        if (!in_array($activeSearchClass, $settings['target'])) {
-            $settings['type'][] = 'VuFind';
-            $settings['target'][] = $activeSearchClass;
-            $settings['label'][] = $activeSearchClass;
-        }
-
-        return $settings;
+        return $this->cachedConfigs[$activeSearchClass];
     }
 
     /**
@@ -192,7 +241,7 @@ class SearchBox extends \Zend\View\Helper\AbstractHelper
     protected function getCombinedHandlers($activeSearchClass, $activeHandler)
     {
         // Build settings:
-        $handlers = array();
+        $handlers = [];
         $selectedFound = false;
         $backupSelectedIndex = false;
         $settings = $this->getCombinedHandlerConfig($activeSearchClass);
@@ -207,7 +256,7 @@ class SearchBox extends \Zend\View\Helper\AbstractHelper
                 $j = 0;
                 $basic = $options->getBasicHandlers();
                 if (empty($basic)) {
-                    $basic = array('' => '');
+                    $basic = ['' => ''];
                 }
                 foreach ($basic as $searchVal => $searchDesc) {
                     $j++;
@@ -220,18 +269,18 @@ class SearchBox extends \Zend\View\Helper\AbstractHelper
                     ) {
                         $backupSelectedIndex = count($handlers);
                     }
-                    $handlers[] = array(
+                    $handlers[] = [
                         'value' => $type . ':' . $target . '|' . $searchVal,
                         'label' => $j == 1 ? $label : $searchDesc,
                         'indent' => $j == 1 ? false : true,
                         'selected' => $selected
-                    );
+                    ];
                 }
             } else if ($type == 'External') {
-                $handlers[] = array(
+                $handlers[] = [
                     'value' => $type . ':' . $target, 'label' => $label,
                     'indent' => false, 'selected' => false
-                );
+                ];
             }
         }
 

@@ -60,14 +60,14 @@ class Manager
      *
      * @var array
      */
-    protected $cacheSettings = array();
+    protected $cacheSettings = [];
 
     /**
      * Actual cache objects generated from settings.
      *
      * @var array
      */
-    protected $caches = array();
+    protected $caches = [];
 
     /**
      * Constructor
@@ -88,11 +88,10 @@ class Manager
         // Get base cache directory.
         $cacheBase = $this->getCacheDir();
 
-        // Set up basic object cache:
-        $this->createFileCache('object', $cacheBase . 'objects');
-
-        // Set up language cache:
-        $this->createFileCache('language', $cacheBase . 'languages');
+        // Set up standard file-based caches:
+        foreach (['config', 'cover', 'language', 'object'] as $cache) {
+            $this->createFileCache($cache, $cacheBase . $cache . 's');
+        }
 
         // Set up search specs cache based on config settings:
         $searchCacheType = isset($searchConfig->Cache->type)
@@ -149,11 +148,16 @@ class Manager
     public function getCacheDir($allowCliOverride = true)
     {
         if ($this->defaults && isset($this->defaults['cache_dir'])) {
-            $dir = $this->defaults['cache_dir'];
-            // ensure trailing slash:
-            if (substr($dir, -1) != '/') {
-                $dir .= '/';
-            }
+            // cache_dir setting in config.ini is deprecated
+            throw new \Exception(
+                'Deprecated cache_dir setting found in config.ini - please use '
+                . 'Apache environment variable VUFIND_CACHE_DIR in '
+                . 'httpd-vufind.conf instead.'
+            );
+        }
+
+        if (strlen(LOCAL_CACHE_DIR) > 0) {
+            $dir = LOCAL_CACHE_DIR . '/';
         } else if (strlen(LOCAL_OVERRIDE_DIR) > 0) {
             $dir = LOCAL_OVERRIDE_DIR . '/cache/';
         } else {
@@ -169,6 +173,16 @@ class Manager
     }
 
     /**
+     * Get the names of all available caches.
+     *
+     * @return array
+     */
+    public function getCacheList()
+    {
+        return array_keys($this->cacheSettings);
+    }
+
+    /**
      * Check if there have been problems creating directories.
      *
      * @return bool
@@ -176,6 +190,24 @@ class Manager
     public function hasDirectoryCreationError()
     {
         return $this->directoryCreationError;
+    }
+
+    /**
+     * Create a new file cache for the given theme name if neccessary. Return
+     * the name of the cache.
+     *
+     * @param string $themeName Name of the theme
+     *
+     * @return string
+     */
+    public function addLanguageCacheForTheme($themeName)
+    {
+        $cacheName = 'languages-' . $themeName;
+        $this->createFileCache(
+            $cacheName,
+            $this->getCacheDir() . 'languages/' . $themeName
+        );
+        return $cacheName;
     }
 
     /**
@@ -230,7 +262,7 @@ class Manager
             }
         }
         if (empty($opts)) {
-            $opts = array('cache_dir' => $dirName);
+            $opts = ['cache_dir' => $dirName];
         } elseif (is_array($opts)) {
             // If cache_dir was set in config.ini, the cache-specific name should
             // have been appended to the path to create the value $dirName.
@@ -239,10 +271,10 @@ class Manager
             // Dryrot
             throw new \Exception('$opts is neither array nor false');
         }
-        $this->cacheSettings[$cacheName] = array(
-            'adapter' => array('name' => 'filesystem', 'options' => $opts),
-            'plugins' => array('serializer')
-        );
+        $this->cacheSettings[$cacheName] = [
+            'adapter' => ['name' => 'filesystem', 'options' => $opts],
+            'plugins' => ['serializer']
+        ];
     }
 
     /**
@@ -254,9 +286,9 @@ class Manager
      */
     protected function createAPCCache($cacheName)
     {
-        $this->cacheSettings[$cacheName] = array(
+        $this->cacheSettings[$cacheName] = [
             'adapter' => 'APC',
-            'plugins' => array('serializer')
-        );
+            'plugins' => ['serializer']
+        ];
     }
 }

@@ -42,91 +42,6 @@ namespace VuFind\Solr;
  */
 class Utils
 {
-    // This lookahead detects whether or not we are inside quotes; it
-    // may be shared by multiple methods.
-    protected static $insideQuotes = '(?=(?:[^\"]*+\"[^\"]*+\")*+[^\"]*+$)';
-
-    /**
-     * Capitalize boolean operators in a query string to allow case-insensitivity.
-     *
-     * @param string $query The query to capitalize.
-     *
-     * @return string       The capitalized query.
-     */
-    public static function capitalizeBooleans($query)
-    {
-        // Load the "inside quotes" lookahead so we can use it to prevent
-        // switching case of Boolean reserved words inside quotes, since
-        // that can cause problems in case-sensitive fields when the reserved
-        // words are actually used as search terms.
-        $lookahead = self::$insideQuotes;
-        $regs = array("/\s+AND\s+{$lookahead}/i", "/\s+OR\s+{$lookahead}/i",
-                "/(\s+NOT\s+|^NOT\s+){$lookahead}/i", "/\(NOT\s+{$lookahead}/i");
-        $replace = array(' AND ', ' OR ', ' NOT ', '(NOT ');
-        return trim(preg_replace($regs, $replace, $query));
-    }
-
-    /**
-     * Make ranges case-insensitive in a query string.
-     *
-     * @param string $query The query to update.
-     *
-     * @return string       The query with case-insensitive ranges.
-     */
-    public static function capitalizeRanges($query)
-    {
-        // Load the "inside quotes" lookahead so we can use it to prevent
-        // switching case of ranges inside quotes, since that can cause
-        // problems in case-sensitive fields when the reserved words are
-        // actually used as search terms.
-        $lookahead = self::$insideQuotes;
-        $regs = array("/(\[)([^\]]+)\s+TO\s+([^\]]+)(\]){$lookahead}/i",
-            "/(\{)([^}]+)\s+TO\s+([^}]+)(\}){$lookahead}/i");
-        $callback = array(get_called_class(), 'capitalizeRangesCallback');
-        return trim(preg_replace_callback($regs, $callback, $query));
-    }
-
-    /**
-     * Support method for capitalizeRanges -- process a single match found by
-     * preg_replace_callback.
-     *
-     * @param array $in Array of matches.
-     *
-     * @return string   Processed result.
-     */
-    public static function capitalizeRangesCallback($in)
-    {
-        // Extract the relevant parts of the expression:
-        $open = $in[1];         // opening symbol
-        $close = $in[4];        // closing symbol
-        $start = $in[2];        // start of range
-        $end = $in[3];          // end of range
-
-        // Is this a case-sensitive range?
-        if (strtoupper($start) != strtolower($start)
-            || strtoupper($end) != strtolower($end)
-        ) {
-            // Build a lowercase version of the range:
-            $lower = $open . trim(strtolower($start)) . ' TO ' .
-                trim(strtolower($end)) . $close;
-            // Build a uppercase version of the range:
-            $upper = $open . trim(strtoupper($start)) . ' TO ' .
-                trim(strtoupper($end)) . $close;
-
-            // Special case: don't create illegal timestamps!
-            $timestamp = '/[0-9]{4}-[0-9]{2}-[0-9]{2}t[0-9]{2}:[0-9]{2}:[0-9]{2}z/i';
-            if (preg_match($timestamp, $start) || preg_match($timestamp, $end)) {
-                return $upper;
-            }
-
-            // Accept results matching either range:
-            return '(' . $lower . ' OR ' . $upper . ')';
-        } else {
-            // Simpler case -- case insensitive (probably numeric) range:
-            return $open . trim($start) . ' TO ' . trim($end) . $close;
-        }
-    }
-
     /**
      * Parse "from" and "to" values out of a range query (or return false if the
      * query is not a range).
@@ -142,6 +57,103 @@ class Utils
         if (!preg_match($regEx, $query, $matches)) {
             return false;
         }
-        return array('from' => trim($matches[1]), 'to' => trim($matches[2]));
+        return ['from' => trim($matches[1]), 'to' => trim($matches[2])];
+    }
+
+    /**
+     * Convert a raw string date (as, for example, from a MARC record) into a legal
+     * Solr date string. Return null if conversion is impossible.
+     *
+     * @param string $date Date to convert.
+     *
+     * @return string|null
+     */
+    public static function sanitizeDate($date)
+    {
+        // Strip brackets; we'll assume guesses are correct.
+        $date = str_replace(['[', ']'], '', $date);
+
+        // Special case -- first four characters are not a year:
+        if (!preg_match('/^[0-9]{4}/', $date)) {
+            // 'n.d.' means no date known -- give up!
+            if (preg_match('/^n\.?\s*d\.?$/', $date)) {
+                return null;
+            }
+
+            // Check for month/year or month-year formats:
+            if (preg_match('/([0-9])(-|\/)([0-9]{4})/', $date, $matches)
+                || preg_match('/([0-9]{2})(-|\/)([0-9]{4})/', $date, $matches)
+            ) {
+                $month = $matches[1];
+                $year = $matches[3];
+                $date = "$year-$month";
+            } else {
+                // strtotime can only handle a limited range of dates; let's extract
+                // a year from the string and temporarily replace it with a known
+                // good year; we'll swap it back after the conversion.
+                $year = preg_match('/[0-9]{4}/', $date, $matches)
+                    ? $matches[0] : false;
+                if ($year) {
+                    $date = str_replace($year, '1999', $date);
+                }
+                $time = @strtotime($date);
+                if ($time) {
+                    $date = @date("Y-m-d", $time);
+                    if ($year) {
+                        $date = str_replace('1999', $year, $date);
+                    }
+                } else if ($year) {
+                    // If the best we can do is extract a 4-digit year, that's better
+                    // than nothing....
+                    $date = $year;
+                } else {
+                    return null;
+                }
+            }
+        }
+
+        // If we've gotten this far, we at least know that we have a valid year.
+        $year = substr($date, 0, 4);
+
+        // Let's get rid of punctuation and normalize separators:
+        $date = str_replace(['.', ' ', '?'], '', $date);
+        $date = str_replace(['/', '--', '-0'], '-', $date);
+
+        // If multiple dates are &'ed together, take just the first:
+        list($date) = explode('&', $date);
+
+        // Default to January 1 if no month/day present:
+        if (strlen($date) < 5) {
+            $month = $day = '01';
+        } else {
+            // If we have year + month, parse that out:
+            if (strlen($date) < 8) {
+                $day = '01';
+                if (preg_match('/^[0-9]{4}-([0-9]{1,2})/', $date, $matches)) {
+                    $month = str_pad($matches[1], 2, "0", STR_PAD_LEFT);
+                } else {
+                    $month = '01';
+                }
+            } else {
+                // If we have year + month + day, parse that out:
+                $ymdRegex = '/^[0-9]{4}-([0-9]{1,2})-([0-9]{1,2})/';
+                if (preg_match($ymdRegex, $date, $matches)) {
+                    $month = str_pad($matches[1], 2, "0", STR_PAD_LEFT);
+                    $day = str_pad($matches[2], 2, "0", STR_PAD_LEFT);
+                } else {
+                    $month = $day = '01';
+                }
+            }
+        }
+
+        // Make sure month/day/year combination is legal. Make it legal if it isn't.
+        if (!checkdate($month, $day, $year)) {
+            $day = '01';
+            if (!checkdate($month, $day, $year)) {
+                $month = '01';
+            }
+        }
+
+        return "{$year}-{$month}-{$day}T00:00:00Z";
     }
 }

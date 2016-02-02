@@ -57,6 +57,18 @@ class Flashmessages extends AbstractHelper
     }
 
     /**
+     * Get the CSS class to correspond with a messenger namespace
+     *
+     * @param string $ns Namespace
+     *
+     * @return string
+     */
+    protected function getClassForNamespace($ns)
+    {
+        return $ns;
+    }
+
+    /**
      * Generate flash message <div>'s with appropriate classes based on message type.
      *
      * @return string $html
@@ -64,14 +76,13 @@ class Flashmessages extends AbstractHelper
     public function __invoke()
     {
         $html = '';
-        $namespaces = array('error', 'info');
+        $namespaces = ['error', 'info', 'success'];
         foreach ($namespaces as $ns) {
-            $this->fm->setNamespace($ns);
             $messages = array_merge(
-                $this->fm->getMessages(), $this->fm->getCurrentMessages()
+                $this->fm->getMessages($ns), $this->fm->getCurrentMessages($ns)
             );
-            foreach (array_unique($messages) as $msg) {
-                $html .= '<div class="' . $ns . '">';
+            foreach (array_unique($messages, SORT_REGULAR) as $msg) {
+                $html .= '<div class="' . $this->getClassForNamespace($ns) . '">';
                 // Advanced form:
                 if (is_array($msg)) {
                     // Use a different translate helper depending on whether
@@ -85,7 +96,7 @@ class Flashmessages extends AbstractHelper
                     }
                     $helper = $helper
                         ? $this->getView()->plugin($helper) : false;
-                    $tokens = isset($msg['tokens']) ? $msg['tokens'] : array();
+                    $tokens = isset($msg['tokens']) ? $msg['tokens'] : [];
                     $default = isset($msg['default']) ? $msg['default'] : null;
                     $html .= $helper
                         ? $helper($msg['msg'], $tokens, $default) : $msg['msg'];
@@ -96,8 +107,8 @@ class Flashmessages extends AbstractHelper
                 }
                 $html .= '</div>';
             }
-            $this->fm->clearMessages();
-            $this->fm->clearCurrentMessages();
+            $this->fm->clearMessages($ns);
+            $this->fm->clearCurrentMessages($ns);
         }
         return $html;
     }

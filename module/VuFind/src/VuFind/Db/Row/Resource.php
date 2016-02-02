@@ -39,8 +39,10 @@ use VuFind\Date\Converter as DateConverter,
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org   Main Site
  */
-class Resource extends ServiceLocatorAwareGateway
+class Resource extends RowGateway implements \VuFind\Db\Table\DbTableAwareInterface
 {
+    use \VuFind\Db\Table\DbTableAwareTrait;
+
     /**
      * Constructor
      *
@@ -91,6 +93,30 @@ class Resource extends ServiceLocatorAwareGateway
     }
 
     /**
+     * Remove a tag from the current resource.
+     *
+     * @param string              $tagText The tag to save.
+     * @param \VuFind\Db\Row\User $user    The user posting the tag.
+     * @param string              $list_id The list associated with the tag
+     * (optional).
+     *
+     * @return void
+     */
+    public function deleteTag($tagText, $user, $list_id = null)
+    {
+        $tagText = trim($tagText);
+        if (!empty($tagText)) {
+            $tags = $this->getDbTable('Tags');
+            $tag = $tags->getByText($tagText);
+
+            $linker = $this->getDbTable('ResourceTags');
+            $linker->destroyLinks(
+                $this->id, $user->id, $list_id, $tag->id
+            );
+        }
+    }
+
+    /**
      * Add a comment to the current resource.
      *
      * @param string              $comment The comment to save.
@@ -112,7 +138,7 @@ class Resource extends ServiceLocatorAwareGateway
         $row->user_id = $user->id;
         $row->resource_id = $this->id;
         $row->comment = $comment;
-        $row->created = date('Y-m-d h:i:s');
+        $row->created = date('Y-m-d H:i:s');
         $row->save();
         return $row->id;
     }

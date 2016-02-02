@@ -91,7 +91,7 @@ class Router
     public function getTabRouteDetails($driver, $tab = null)
     {
         $route = $this->getRouteDetails(
-            $driver, '', empty($tab) ? array() : array('tab' => $tab)
+            $driver, '', empty($tab) ? [] : ['tab' => $tab]
         );
 
         // If collections are active and the record route was selected, we need
@@ -102,7 +102,7 @@ class Router
                 && $this->config->Collections->collections
             ) {
                 if (!is_object($driver)) {
-                    list($source, $id) = explode('|', $driver, 2);
+                    list($source, $id) = $this->extractSourceAndId($driver);
                     $driver = $this->loader->load($id, $source);
                 }
                 if (true === $driver->tryMethod('isCollection')) {
@@ -125,38 +125,49 @@ class Router
      *
      * @return array
      */
-    public function getRouteDetails($driver, $routeSuffix,
-        $extraParams = array()
+    public function getRouteDetails($driver, $routeSuffix = '',
+        $extraParams = []
     ) {
         // Extract source and ID from driver or string:
         if (is_object($driver)) {
-            $source = $driver->getResourceSource();
+            $source = $driver->getSourceIdentifier();
             $id = $driver->getUniqueId();
         } else {
-            $parts = explode('|', $driver, 2);
-            if (count($parts) < 2) {
-                $source = 'VuFind';
-                $id = $parts[0];
-            } else {
-                $source = $parts[0];
-                $id = $parts[1];
-            }
+            list($source, $id) = $this->extractSourceAndId($driver);
         }
 
         // Build URL parameters:
         $params = $extraParams;
         $params['id'] = $id;
-        if (!empty($action)) {
-            $params['action'] = $action;
-        }
 
         // Determine route based on naming convention (default VuFind route is
         // the exception to the rule):
-        $routeBase = ($source == 'VuFind')
+        $routeBase = ($source == DEFAULT_SEARCH_BACKEND)
             ? 'record' : strtolower($source . 'record');
 
-        return array(
+        return [
             'params' => $params, 'route' => $routeBase . $routeSuffix
-        );
+        ];
+    }
+
+    /**
+     * Extract source and ID from a pipe-delimited string, adding a default
+     * source if appropriate.
+     *
+     * @param string $driver source|ID string
+     *
+     * @return array
+     */
+    protected function extractSourceAndId($driver)
+    {
+        $parts = explode('|', $driver, 2);
+        if (count($parts) < 2) {
+            $source = DEFAULT_SEARCH_BACKEND;
+            $id = $parts[0];
+        } else {
+            $source = $parts[0];
+            $id = $parts[1];
+        }
+        return [$source, $id];
     }
 }

@@ -38,7 +38,7 @@ class FeedbackController extends AbstractBase
     }
 
     /**
-     * Recieves input from the user and sends an email to the recipient set in
+     * Receives input from the user and sends an email to the recipient set in
      * the config.ini
      *
      * @return void
@@ -54,7 +54,7 @@ class FeedbackController extends AbstractBase
         }
         $validator = new \Zend\Validator\EmailAddress();
         if (!$validator->isValid($users_email)) {
-            throw \Exception('Email address is invalid');
+            throw new \Exception('Email address is invalid');
         }
 
         // These settings are set in the feedback settion of your config.ini
@@ -79,9 +79,9 @@ class FeedbackController extends AbstractBase
             throw new \Exception('Feedback Module Error: Comment Post Failed');
         }
 
-        $email_message = 'Name: '.$name."\n";
-        $email_message .= 'Email: '.$users_email."\n";
-        $email_message .= 'Comments: '.$comments."\n";
+        $email_message = 'Name: ' . $name . "\n";
+        $email_message .= 'Email: ' . $users_email . "\n";
+        $email_message .= 'Comments: ' . $comments . "\n";
 
         // This sets up the email to be sent
         $mail = new Mail\Message();

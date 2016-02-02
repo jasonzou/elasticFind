@@ -40,80 +40,6 @@ use VuFind\Solr\Utils;
 class UtilsTest extends \VuFindTest\Unit\TestCase
 {
     /**
-     * Test capitalizeBooleans functionality.
-     *
-     * @return void
-     */
-    public function testCapitalizeBooleans()
-    {
-        // Set up an array of expected inputs and outputs:
-        // @codingStandardsIgnoreStart
-        $tests = array(
-            array('this not that', 'this NOT that'),        // capitalize not
-            array('this and that', 'this AND that'),        // capitalize and
-            array('this or that', 'this OR that'),          // capitalize or
-            array('apples and oranges (not that)', 'apples AND oranges (NOT that)'),
-            array('"this not that"', '"this not that"'),    // do not capitalize inside quotes
-            array('"this and that"', '"this and that"'),    // do not capitalize inside quotes
-            array('"this or that"', '"this or that"'),      // do not capitalize inside quotes
-            array('"apples and oranges (not that)"', '"apples and oranges (not that)"'),
-            array('this AND that', 'this AND that'),        // don't mess up existing caps
-            array('and and and', 'and AND and'),
-            array('andornot noted andy oranges', 'andornot noted andy oranges'),
-            array('(this or that) and (apples not oranges)', '(this OR that) AND (apples NOT oranges)'),
-            array('this aNd that', 'this AND that'),        // strange capitalization of AND
-            array('this nOt that', 'this NOT that')         // strange capitalization of NOT
-        );
-        // @codingStandardsIgnoreEnd
-
-        // Test all the operations:
-        foreach ($tests as $current) {
-            $this->assertEquals(
-                Utils::capitalizeBooleans($current[0]), $current[1]
-            );
-        }
-    }
-
-    /**
-     * Test capitalizeRanges functionality.
-     *
-     * @return void
-     */
-    public function testCapitalizeRanges()
-    {
-        // Set up an array of expected inputs and outputs:
-        // @codingStandardsIgnoreStart
-        $tests = array(
-            array('"{a to b}"', '"{a to b}"'),              // don't capitalize inside quotes
-            array('"[a to b]"', '"[a to b]"'),
-            array('[a to b]', '([a TO b] OR [A TO B])'),    // expand alphabetic cases
-            array('[a TO b]', '([a TO b] OR [A TO B])'),
-            array('[a To b]', '([a TO b] OR [A TO B])'),
-            array('[a tO b]', '([a TO b] OR [A TO B])'),
-            array('{a to b}', '({a TO b} OR {A TO B})'),
-            array('{a TO b}', '({a TO b} OR {A TO B})'),
-            array('{a To b}', '({a TO b} OR {A TO B})'),
-            array('{a tO b}', '({a TO b} OR {A TO B})'),
-            array('[1900 to 1910]', '[1900 TO 1910]'),      // don't expand numeric cases
-            array('[1900 TO 1910]', '[1900 TO 1910]'),
-            array('{1900 to 1910}', '{1900 TO 1910}'),
-            array('{1900 TO 1910}', '{1900 TO 1910}'),
-            array('[a      to      b]', '([a TO b] OR [A TO B])'),   // handle extra spaces
-            // special case for timestamps:
-            array('[1900-01-01t00:00:00z to 1900-12-31t23:59:59z]', '[1900-01-01T00:00:00Z TO 1900-12-31T23:59:59Z]'),
-            array('{1900-01-01T00:00:00Z       TO   1900-12-31T23:59:59Z}', '{1900-01-01T00:00:00Z TO 1900-12-31T23:59:59Z}')
-        );
-        // @codingStandardsIgnoreEnd
-
-        // Test all the operations:
-        foreach ($tests as $current) {
-            $this->assertEquals(
-                Utils::capitalizeRanges($current[0]), $current[1]
-            );
-        }
-    }
-
-    /**
      * Test parseRange functionality.
      *
      * @return void
@@ -133,5 +59,42 @@ class UtilsTest extends \VuFindTest\Unit\TestCase
         // test invalid ranges:
         $this->assertFalse(Utils::parseRange('1 TO 100'));
         $this->assertFalse(Utils::parseRange('[not a range to me]'));
+    }
+
+    /**
+     * Test sanitizeDate functionality.
+     *
+     * @return void
+     */
+    public function testSanitizeDate()
+    {
+        $tests = [
+            '[2014]' => '2014-01-01',
+            'n.d.' => null,
+            'may 7, 1981' => '1981-05-07',
+            'July 1570' => '1570-07-01',
+            'incomprehensible garbage' => null,
+            '1930/12/21' => '1930-12-21',
+            '1964?' => '1964-01-01',
+            '1947-3' => '1947-03-01',
+            '1973-02-31' => '1973-02-01',       // illegal day
+            '1973-31-31' => '1973-01-01',       // illegal month
+            '1964-zz' => '1964-01-01',
+            '1964-01-zz' => '1964-01-01',
+            'Winter 2012' => '2012-01-01',
+            '05-1901' => '1901-05-01',
+            '5-1901' => '1901-05-01',
+            '05/1901' => '1901-05-01',
+            '5/1901' => '1901-05-01',
+            '2nd Quarter 2004' => '2004-01-01',
+            'Nov 2009 and Dec 2009' => '2009-01-01',
+        ];
+        
+        foreach ($tests as $in => $out) {
+            $this->assertEquals(
+                $out === null ? null : $out . 'T00:00:00Z', // append standard time value unless null
+                Utils::sanitizeDate($in)
+            );
+        }
     }
 }

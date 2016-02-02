@@ -40,8 +40,25 @@ use Zend\Db\Adapter\Adapter as DbAdapter, Zend\Db\Metadata\Metadata as DbMetadat
  */
 class DbUpgrade extends AbstractPlugin
 {
-    protected $dbCommands = array();
+    /**
+     * Database commands to generate table
+     *
+     * @var array
+     */
+    protected $dbCommands = [];
+
+    /**
+     * Database adapter
+     *
+     * @var DbAdapter
+     */
     protected $adapter;
+
+    /**
+     * Table metadata
+     *
+     * @var array
+     */
     protected $tableInfo = false;
 
     /**
@@ -66,7 +83,7 @@ class DbUpgrade extends AbstractPlugin
             if (isset($matches[2])) {
                 $table = str_replace('`', '', $matches[2]);
                 if (!isset($this->dbCommands[$table])) {
-                    $this->dbCommands[$table] = array();
+                    $this->dbCommands[$table] = [];
                 }
                 $this->dbCommands[$table][] = $statement;
             }
@@ -130,7 +147,7 @@ class DbUpgrade extends AbstractPlugin
         if ($reload || !$this->tableInfo) {
             $metadata = new DbMetadata($this->getAdapter());
             $tables = $metadata->getTables();
-            $this->tableInfo = array();
+            $this->tableInfo = [];
             foreach ($tables as $current) {
                 $this->tableInfo[$current->getName()] = $current;
             }
@@ -164,7 +181,7 @@ class DbUpgrade extends AbstractPlugin
         $results = $this->getAdapter()->query($sql, DbAdapter::QUERY_MODE_EXECUTE);
 
         // Load details:
-        $retVal = array();
+        $retVal = [];
         foreach ($results as $current) {
             if (strtolower(substr($current->Collation, 0, 6)) == 'latin1') {
                 $retVal[$current->Field] = (array)$current;
@@ -186,7 +203,7 @@ class DbUpgrade extends AbstractPlugin
         $results = $this->getAdapter()->query($sql, DbAdapter::QUERY_MODE_EXECUTE);
 
         // Load details:
-        $retVal = array();
+        $retVal = [];
         foreach ($results as $current) {
             if (strtolower(substr($current->Collation, 0, 6)) == 'latin1') {
                 $retVal[$current->Name]
@@ -219,6 +236,9 @@ class DbUpgrade extends AbstractPlugin
                 $oldType = $details['Type'];
                 $parts = explode('(', $oldType);
                 switch ($parts[0]) {
+                case 'char':
+                    $newType = 'binary(' . $parts[1];
+                    break;
                 case 'text':
                     $newType = 'blob';
                     break;
@@ -230,8 +250,9 @@ class DbUpgrade extends AbstractPlugin
                 }
                 // Set up default:
                 if (null !== $details['Default']) {
-                    $safeDefault = mysql_real_escape_string($details['Default']);
-                    $currentDefault = " DEFAULT '{$safeDefault}'";
+                    $safeDefault = $this->getAdapter()->getPlatform()
+                        ->quoteValue($details['Default']);
+                    $currentDefault = " DEFAULT {$safeDefault}";
                 } else {
                     $currentDefault = '';
                 }
@@ -270,8 +291,8 @@ class DbUpgrade extends AbstractPlugin
     protected function getTableColumns($table)
     {
         $info = $this->getTableInfo(true);
-        $columns = isset($info[$table]) ? $info[$table]->getColumns() : array();
-        $retVal = array();
+        $columns = isset($info[$table]) ? $info[$table]->getColumns() : [];
+        $retVal = [];
         foreach ($columns as $current) {
             $retVal[strtolower($current->getName())] = $current;
         }
@@ -287,8 +308,8 @@ class DbUpgrade extends AbstractPlugin
     public function getMissingTables()
     {
         $tables = $this->getAllTables();
-        $missing = array();
-        foreach ($this->dbCommands as $table => $sql) {
+        $missing = [];
+        foreach (array_keys($this->dbCommands) as $table) {
             if (!in_array(trim(strtolower($table)), $tables)) {
                 $missing[] = $table;
             }
@@ -326,9 +347,9 @@ class DbUpgrade extends AbstractPlugin
      * @throws \Exception
      * @return array
      */
-    public function getMissingColumns($missingTables = array())
+    public function getMissingColumns($missingTables = [])
     {
-        $missing = array();
+        $missing = [];
         foreach ($this->dbCommands as $table => $sql) {
             // Skip missing tables if we're logging
             if (in_array($table, $missingTables)) {
@@ -342,7 +363,7 @@ class DbUpgrade extends AbstractPlugin
             $expectedColumns = $matches[1];
 
             // Create associative array of column name => SQL defining that column
-            $columnDefinitions = array();
+            $columnDefinitions = [];
             foreach ($expectedColumns as $i => $name) {
                 // Strip off any comments:
                 $parts = explode('--', $matches[0][$i]);
@@ -356,13 +377,35 @@ class DbUpgrade extends AbstractPlugin
             foreach ($expectedColumns as $column) {
                 if (!in_array(strtolower($column), $actualColumns)) {
                     if (!isset($missing[$table])) {
-                        $missing[$table] = array();
+                        $missing[$table] = [];
                     }
                     $missing[$table][] = $columnDefinitions[$column];
                 }
             }
         }
         return $missing;
+    }
+
+    /**
+     * Given a current row default, return true if the current default matches the
+     * one found in the SQL provided as the $sql parameter. Return false if there
+     * is a mismatch that will require table structure updates.
+     *
+     * @param string $currentDefault Object to check
+     * @param string $sql            SQL to compare against
+     *
+     * @return bool
+     */
+    protected function defaultMatches($currentDefault, $sql)
+    {
+        preg_match("/.* DEFAULT (.*)$/", $sql, $matches);
+        $expectedDefault = isset($matches[1]) ? $matches[1] : null;
+        if (null !== $expectedDefault) {
+            $expectedDefault = trim(rtrim($expectedDefault, ','), "'");
+            $expectedDefault = (strtoupper($expectedDefault) == 'NULL')
+                ? null : $expectedDefault;
+        }
+        return ($expectedDefault === $currentDefault);
     }
 
     /**
@@ -433,10 +476,10 @@ class DbUpgrade extends AbstractPlugin
      * @throws \Exception
      * @return array
      */
-    public function getModifiedColumns($missingTables = array(),
-        $missingColumns = array()
+    public function getModifiedColumns($missingTables = [],
+        $missingColumns = []
     ) {
-        $missing = array();
+        $modified = [];
         foreach ($this->dbCommands as $table => $sql) {
             // Skip missing tables if we're logging
             if (in_array($table, $missingTables)) {
@@ -454,7 +497,7 @@ class DbUpgrade extends AbstractPlugin
             $expectedTypes = $matches[2];
 
             // Create associative array of column name => SQL defining that column
-            $columnDefinitions = array();
+            $columnDefinitions = [];
             foreach ($expectedColumns as $i => $name) {
                 // Strip off any comments:
                 $parts = explode('--', $matches[0][$i]);
@@ -473,15 +516,20 @@ class DbUpgrade extends AbstractPlugin
                     continue;
                 }
                 $currentColumn = $actualColumns[$column];
-                if (!$this->typeMatches($currentColumn, $expectedTypes[$i])) {
-                    if (!isset($missing[$table])) {
-                        $missing[$table] = array();
+                if (!$this->typeMatches($currentColumn, $expectedTypes[$i])
+                    || !$this->defaultMatches(
+                        $currentColumn->getColumnDefault(),
+                        $columnDefinitions[$column]
+                    )
+                ) {
+                    if (!isset($modified[$table])) {
+                        $modified[$table] = [];
                     }
-                    $missing[$table][] = $columnDefinitions[$column];
+                    $modified[$table][] = $columnDefinitions[$column];
                 }
             }
         }
-        return $missing;
+        return $modified;
     }
 
     /**

@@ -97,48 +97,7 @@ class Bootstrapper
         // Create the configuration manager:
         $app = $this->event->getApplication();
         $serviceManager = $app->getServiceManager();
-        $config = $app->getConfig();
-        $cfg = new \Zend\ServiceManager\Config($config['vufind']['config_reader']);
-        $serviceManager->setService(
-            'VuFind\Config', new \VuFind\Config\PluginManager($cfg)
-        );
-
-        // Use the manager to load the configuration used in subsequent init methods:
         $this->config = $serviceManager->get('VuFind\Config')->get('config');
-    }
-
-    /**
-     * Set up plugin managers.
-     *
-     * @return void
-     */
-    protected function initPluginManagers()
-    {
-        $app = $this->event->getApplication();
-        $serviceManager = $app->getServiceManager();
-        $config = $app->getConfig();
-
-        // Use naming conventions to set up a bunch of services based on namespace:
-        $namespaces = array(
-            'Auth', 'Autocomplete', 'Db\Table', 'Hierarchy\Driver',
-            'Hierarchy\TreeDataSource', 'Hierarchy\TreeRenderer', 'ILS\Driver',
-            'Recommend', 'RecordDriver', 'RecordTab', 'Related', 'Resolver\Driver',
-            'Search\Options', 'Search\Params', 'Search\Results', 'Session',
-            'Statistics\Driver'
-        );
-        foreach ($namespaces as $ns) {
-            $serviceName = 'VuFind\\' . str_replace('\\', '', $ns) . 'PluginManager';
-            $factory = function ($sm) use ($config, $ns) {
-                $className = 'VuFind\\' . $ns . '\PluginManager';
-                $configKey = strtolower(str_replace('\\', '_', $ns));
-                return new $className(
-                    new \Zend\ServiceManager\Config(
-                        $config['vufind']['plugin_managers'][$configKey]
-                    )
-                );
-            };
-            $serviceManager->setFactory($serviceName, $factory);
-        }
     }
 
     /**
@@ -188,6 +147,30 @@ class Bootstrapper
     }
 
     /**
+     * Initialize dynamic debug mode (debug initiated by a ?debug=true parameter).
+     *
+     * @return void
+     */
+    protected function initDynamicDebug()
+    {
+        // Query parameters do not apply in console mode:
+        if (Console::isConsole()) {
+            return;
+        }
+
+        $app = $this->event->getApplication();
+        $sm = $app->getServiceManager();
+        $debugOverride = $sm->get('Request')->getQuery()->get('debug');
+        if ($debugOverride) {
+            $auth = $sm->get('ZfcRbac\Service\AuthorizationService');
+            if ($auth->isGranted('access.DebugMode')) {
+                $logger = $sm->get('VuFind\Logger');
+                $logger->addDebugWriter($debugOverride);
+            }
+        }
+    }
+
+    /**
      * If the system is offline, set up a handler to override the routing output.
      *
      * @return void
@@ -200,7 +183,7 @@ class Bootstrapper
         ) {
             $callback = function ($e) {
                 $routeMatch = new RouteMatch(
-                    array('controller' => 'Error', 'action' => 'Unavailable'), 1
+                    ['controller' => 'Error', 'action' => 'Unavailable'], 1
                 );
                 $routeMatch->setMatchedRouteName('error-unavailable');
                 $e->setRouteMatch($routeMatch);
@@ -220,8 +203,12 @@ class Bootstrapper
         // the config file if this doesn't work -- different systems may vary in
         // their behavior here.
         setlocale(
-            LC_MONETARY,
-            array("{$this->config->Site->locale}.UTF-8", $this->config->Site->locale)
+            LC_ALL,
+            [
+                "{$this->config->Site->locale}.UTF8",
+                "{$this->config->Site->locale}.UTF-8",
+                $this->config->Site->locale
+            ]
         );
         date_default_timezone_set($this->config->Site->timezone);
     }
@@ -310,7 +297,7 @@ class Bootstrapper
         $validLanguages = array_keys($this->config->Languages->toArray());
 
         // return first valid language
-        foreach ($langs as $language => $rating) {
+        foreach (array_keys($langs) as $language) {
             // Make sure language code is valid
             $language = strtolower($language);
             if (in_array($language, $validLanguages)) {
@@ -328,6 +315,30 @@ class Bootstrapper
     }
 
     /**
+     * Support method for initLanguage() -- look up all text domains.
+     *
+     * @return array
+     */
+    protected function getTextDomains()
+    {
+        $base = APPLICATION_PATH;
+        $local = LOCAL_OVERRIDE_DIR;
+        $languagePathParts = ["$base/languages"];
+        if (!empty($local)) {
+            $languagePathParts[] = "$local/languages";
+        }
+        $languagePathParts[] = "$base/themes/*/languages";
+
+        $domains = [];
+        foreach ($languagePathParts as $current) {
+            $places = glob($current . '/*', GLOB_ONLYDIR | GLOB_NOSORT);
+            $domains = array_merge($domains, array_map('basename', $places));
+        }
+
+        return array_unique($domains);
+    }
+
+    /**
      * Set up language handling.
      *
      * @return void
@@ -339,17 +350,19 @@ class Bootstrapper
             return;
         }
 
-        $config =& $this->config;
-        $browserCallback = array($this, 'detectBrowserLanguage');
+        $config = & $this->config;
+        $browserCallback = [$this, 'detectBrowserLanguage'];
         $callback = function ($event) use ($config, $browserCallback) {
             $validBrowserLanguage = call_user_func($browserCallback);
 
             // Setup Translator
             $request = $event->getRequest();
+            $sm = $event->getApplication()->getServiceManager();
             if (($language = $request->getPost()->get('mylang', false))
                 || ($language = $request->getQuery()->get('lng', false))
             ) {
-                setcookie('language', $language, null, '/');
+                $cookieManager = $sm->get('VuFind\CookieManager');
+                $cookieManager->set('language', $language);
             } elseif (!empty($request->getCookie()->language)) {
                 $language = $request->getCookie()->language;
             } else {
@@ -361,20 +374,38 @@ class Bootstrapper
             if (!in_array($language, array_keys($config->Languages->toArray()))) {
                 $language = $config->Site->language;
             }
-
-            $sm = $event->getApplication()->getServiceManager();
-            $langFile = APPLICATION_PATH  . '/languages/' . $language . '.ini';
-            $sm->get('VuFind\Translator')
-                ->addTranslationFile('ExtendedIni', $langFile, 'default', $language)
-                ->setLocale($language);
-
+            try {
+                $translator = $sm->get('VuFind\Translator');
+                $translator->setLocale($language)
+                    ->addTranslationFile('ExtendedIni', null, 'default', $language);
+                foreach ($this->getTextDomains() as $domain) {
+                    // Set up text domains using the domain name as the filename;
+                    // this will help the ExtendedIni loader dynamically locate
+                    // the appropriate files.
+                    $translator->addTranslationFile(
+                        'ExtendedIni', $domain, $domain, $language
+                    );
+                }
+            } catch (\Zend\Mvc\Exception\BadMethodCallException $e) {
+                if (!extension_loaded('intl')) {
+                    throw new \Exception(
+                        'Translation broken due to missing PHP intl extension.'
+                        . ' Please disable translation or install the extension.'
+                    );
+                }
+            }
             // Send key values to view:
             $viewModel = $sm->get('viewmanager')->getViewModel();
             $viewModel->setVariable('userLang', $language);
             $viewModel->setVariable('allLangs', $config->Languages);
+            $rtlLangs = isset($config->LanguageSettings->rtl_langs)
+                ? array_map(
+                    'trim', explode(',', $config->LanguageSettings->rtl_langs)
+                ) : [];
+            $viewModel->setVariable('rtl', in_array($language, $rtlLangs));
         };
-        $this->events->attach('dispatch.error', $callback, 9000);
-        $this->events->attach('dispatch', $callback, 9000);
+        $this->events->attach('dispatch.error', $callback, 10000);
+        $this->events->attach('dispatch', $callback, 10000);
     }
 
     /**
@@ -391,7 +422,7 @@ class Bootstrapper
 
         // Attach template injection configuration to the route event:
         $this->events->attach(
-            'route', array('VuFindTheme\Initializer', 'configureTemplateInjection')
+            'route', ['VuFindTheme\Initializer', 'configureTemplateInjection']
         );
 
         // Attach remaining theme configuration to the dispatch event at high
@@ -401,8 +432,8 @@ class Bootstrapper
             $theme = new \VuFindTheme\Initializer($config, $event);
             $theme->init();
         };
-        $this->events->attach('dispatch.error', $callback, 10000);
-        $this->events->attach('dispatch', $callback, 10000);
+        $this->events->attach('dispatch.error', $callback, 9000);
+        $this->events->attach('dispatch', $callback, 9000);
     }
 
     /**
@@ -445,7 +476,7 @@ class Bootstrapper
         $sm     = $this->event->getApplication()->getServiceManager();
         $bm     = $sm->get('VuFind\Search\BackendManager');
         $events = $sm->get('SharedEventManager');
-        $events->attach('VuFind\Search', 'resolve', array($bm, 'onResolve'));
+        $events->attach('VuFindSearch', 'resolve', [$bm, 'onResolve']);
     }
 
     /**
@@ -459,12 +490,12 @@ class Bootstrapper
             $sm = $event->getApplication()->getServiceManager();
             if ($sm->has('VuFind\Logger')) {
                 $log = $sm->get('VuFind\Logger');
-                if (is_callable(array($log, 'logException'))) {
+                if (is_callable([$log, 'logException'])) {
                     $exception = $event->getParam('exception');
                     // Console request does not include server,
                     // so use a dummy in that case.
                     $server = Console::isConsole()
-                        ? new \Zend\Stdlib\Parameters(array('env' => 'console'))
+                        ? new \Zend\Stdlib\Parameters(['env' => 'console'])
                         : $event->getRequest()->getServer();
                     if (!empty($exception)) {
                         $log->logException($exception, $server);

@@ -37,7 +37,6 @@ use Zend\Mvc\MvcEvent;
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org   Main Site
  */
-
 class SummonController extends AbstractSearch
 {
     /**
@@ -62,11 +61,13 @@ class SummonController extends AbstractSearch
     }
 
     /**
-     * preDispatch -- block access when appropriate.
+     * Use preDispatch event to add Summon message.
      *
      * @param MvcEvent $e Event object
      *
      * @return void
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
     public function preDispatch(MvcEvent $e)
     {
@@ -83,7 +84,7 @@ class SummonController extends AbstractSearch
     {
         parent::attachDefaultListeners();
         $events = $this->getEventManager();
-        $events->attach(MvcEvent::EVENT_DISPATCH, array($this, 'preDispatch'), 1000);
+        $events->attach(MvcEvent::EVENT_DISPATCH, [$this, 'preDispatch'], 1000);
     }
 
     /**
@@ -100,6 +101,16 @@ class SummonController extends AbstractSearch
         $view->facetList = $this->processAdvancedFacets(
             $this->getAdvancedFacets()->getFacetList(), $view->saved
         );
+        $specialFacets = $this->parseSpecialFacetsSetting(
+            $view->options->getSpecialAdvancedFacets()
+        );
+        if (isset($specialFacets['checkboxes'])) {
+            $view->checkboxFacets = $this->processAdvancedCheckboxes(
+                $specialFacets['checkboxes'], $view->saved
+            );
+        }
+        $view->ranges = $this
+            ->getAllRangeSettings($specialFacets, $view->saved, 'Summon');
 
         return $view;
     }
@@ -112,7 +123,7 @@ class SummonController extends AbstractSearch
     public function homeAction()
     {
         return $this->createViewModel(
-            array('results' => $this->getHomePageFacets())
+            ['results' => $this->getHomePageFacets()]
         );
     }
 
@@ -138,10 +149,29 @@ class SummonController extends AbstractSearch
         $cache = $this->getServiceLocator()->get('VuFind\CacheManager')
             ->getCache('object');
         if (!($results = $cache->getItem('summonSearchAdvancedFacets'))) {
+            $config = $this->getServiceLocator()->get('VuFind\Config')
+                ->get('Summon');
+            $limit = isset($config->Advanced_Facet_Settings->facet_limit)
+                ? $config->Advanced_Facet_Settings->facet_limit : 100;
             $results = $this->getResultsManager()->get('Summon');
             $params = $results->getParams();
-            $params->addFacet('Language,or,1,20');
-            $params->addFacet('ContentType,or,1,20', 'Format');
+            $facetsToShow = isset($config->Advanced_Facets)
+                 ? $config->Advanced_Facets
+                 : ['Language' => 'Language', 'ContentType' => 'Format'];
+            if (isset($config->Advanced_Facet_Settings->orFacets)) {
+                $orFields = array_map(
+                    'trim', explode(',', $config->Advanced_Facet_Settings->orFacets)
+                );
+            } else {
+                $orFields = [];
+            }
+            foreach ($facetsToShow as $facet => $label) {
+                $useOr = (isset($orFields[0]) && $orFields[0] == '*')
+                    || in_array($facet, $orFields);
+                $params->addFacet(
+                    $facet . ',or,1,' . $limit, $label, $useOr
+                );
+            }
 
             // We only care about facet lists, so don't get any results:
             $params->setLimit(0);
@@ -184,7 +214,8 @@ class SummonController extends AbstractSearch
         foreach ($facetList as $facet => $list) {
             foreach ($list['list'] as $key => $value) {
                 // Build the filter string for the URL:
-                $fullFilter = $facet.':"'.$value['value'].'"';
+                $fullFilter = ($value['operator'] == 'OR' ? '~' : '')
+                    . $facet . ':"' . $value['value'] . '"';
 
                 // If we haven't already found a selected facet and the current
                 // facet has been applied to the search, we should store it as

@@ -80,9 +80,11 @@ class RecordLink extends \Zend\View\Helper\AbstractHelper
             break;
         case 'isn':
             $url = $urlHelper('search-results')
-                . '?join=AND&bool0[]=AND&lookfor0[]='
-                . urlencode($link['value']) . '&type0[]=isn&bool1[]=NOT&lookfor1[]='
-                . urlencode($link['exclude']) . '&type1[]=id&sort=title&view=list';
+                . '?join=AND&bool0[]=AND&lookfor0[]=%22'
+                . urlencode($link['value'])
+                . '%22&type0[]=isn&bool1[]=NOT&lookfor1[]=%22'
+                . urlencode($link['exclude'])
+                . '%22&type1[]=id&sort=title&view=list';
             break;
         case 'oclc':
             $url = $urlHelper('search-results')
@@ -121,7 +123,8 @@ class RecordLink extends \Zend\View\Helper\AbstractHelper
     }
 
     /**
-     * Given a string or array of parts, build a hold URL.
+     * Alias for getRequestUrl(), to maintain backward compatibility with
+     * VuFind 2.2 and earlier versions.
      *
      * @param string|array $url           URL to process
      * @param bool         $includeAnchor Should we include an anchor?
@@ -130,11 +133,25 @@ class RecordLink extends \Zend\View\Helper\AbstractHelper
      */
     public function getHoldUrl($url, $includeAnchor = true)
     {
+        return $this->getRequestUrl($url, $includeAnchor);
+    }
+
+    /**
+     * Given a string or array of parts, build a request (e.g. hold) URL.
+     *
+     * @param string|array $url           URL to process
+     * @param bool         $includeAnchor Should we include an anchor?
+     *
+     * @return string
+     */
+    public function getRequestUrl($url, $includeAnchor = true)
+    {
         if (is_array($url)) {
             // Assemble URL string from array parts:
-            $urlHelper = $this->getView()->plugin('url');
+            $source = isset($url['source'])
+                ? $url['source'] : DEFAULT_SEARCH_BACKEND;
             $finalUrl
-                = $this->getActionUrl('VuFind|' . $url['record'], $url['action']);
+                = $this->getActionUrl("{$source}|" . $url['record'], $url['action']);
             if (isset($url['query'])) {
                 $finalUrl .= '?' . $url['query'];
             }
@@ -154,6 +171,7 @@ class RecordLink extends \Zend\View\Helper\AbstractHelper
         $escaper = $this->getView()->plugin('escapehtml');
         return $escaper($finalUrl);
     }
+
     /**
      * Given a record driver, get a URL for that record.
      *
@@ -200,5 +218,24 @@ class RecordLink extends \Zend\View\Helper\AbstractHelper
         return '<a href="' . $this->getUrl($driver) . '">' .
             $escapeHelper($truncateHelper($driver->getBreadcrumb(), 30))
             . '</a>';
+    }
+
+    /**
+     * Given a record driver, generate a URL to fetch all child records for it.
+     *
+     * @param \VuFind\RecordDriver\AbstractBase $driver Host Record.
+     *
+     * @return string
+     */
+    public function getChildRecordSearchUrl($driver)
+    {
+        $urlHelper = $this->getView()->plugin('url');
+        $url = $urlHelper('search-results')
+            . '?lookfor='
+            . urlencode(addcslashes($driver->getUniqueID(), '"'))
+            . '&type=ParentID';
+        // Make sure everything is properly HTML encoded:
+        $escaper = $this->getView()->plugin('escapehtml');
+        return $escaper($url);
     }
 }

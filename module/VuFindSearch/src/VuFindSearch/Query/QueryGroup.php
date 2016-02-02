@@ -26,7 +26,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindSearch\Query;
 
 use VuFindSearch\Exception\InvalidArgumentException;
@@ -42,13 +41,12 @@ use VuFindSearch\Exception\InvalidArgumentException;
  */
 class QueryGroup extends AbstractQuery
 {
-
     /**
      * Valid boolean operators.
      *
      * @var array
      */
-    protected static $operators = array('AND', 'OR', 'NOT');
+    protected static $operators = ['AND', 'OR', 'NOT'];
 
     /**
      * Name of the handler to be used if the query group is reduced.
@@ -91,7 +89,7 @@ class QueryGroup extends AbstractQuery
      *
      * @return void
      */
-    public function __construct($operator, array $queries = array(),
+    public function __construct($operator, array $queries = [],
         $reducedHandler = null
     ) {
         $this->setOperator($operator);
@@ -106,7 +104,7 @@ class QueryGroup extends AbstractQuery
      */
     public function __clone()
     {
-        $new = array();
+        $new = [];
         foreach ($this->queries as $q) {
             $new[] = clone($q);
         }
@@ -175,6 +173,19 @@ class QueryGroup extends AbstractQuery
      * @return void
      */
     public function setQueries(array $queries)
+    {
+        $this->queries = [];
+        $this->addQueries($queries);
+    }
+
+    /**
+     * Add group queries.
+     *
+     * @param array $queries Group queries
+     *
+     * @return void
+     */
+    public function addQueries(array $queries)
     {
         foreach ($queries as $query) {
             $this->addQuery($query);
@@ -249,7 +260,7 @@ class QueryGroup extends AbstractQuery
      */
     public function getAllTerms()
     {
-        $parts = array();
+        $parts = [];
         foreach ($this->getQueries() as $q) {
             $parts[] = $q->getAllTerms();
         }

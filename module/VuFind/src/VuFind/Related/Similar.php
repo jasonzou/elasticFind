@@ -63,8 +63,6 @@ class Similar implements RelatedInterface
     }
 
     /**
-     * init
-     *
      * Establishes base settings for making recommendations.
      *
      * @param string                            $settings Settings from config.ini
@@ -74,13 +72,12 @@ class Similar implements RelatedInterface
      */
     public function init($settings, $driver)
     {
-        $this->results
-            = $this->searchService->similar('Solr', $driver->getUniqueId());
+        $this->results = $this->searchService->similar(
+            $driver->getSourceIdentifier(), $driver->getUniqueId()
+        );
     }
 
     /**
-     * getResults
-     *
      * Get an array of Record Driver objects representing items similar to the one
      * passed to the constructor.
      *

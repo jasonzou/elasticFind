@@ -26,7 +26,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindTest\Query;
 
 use VuFindSearch\Query\Query;
@@ -61,5 +60,29 @@ class QueryTest extends PHPUnit_Framework_TestCase
 
         // Should not contain a partial term (matches on word boundaries):
         $this->assertFalse($q->containsTerm('tes'));
+    }
+
+    /**
+     * Test setHandler() method
+     *
+     * @return void
+     */
+    public function testSetHandler()
+    {
+        $q = new Query('foo', 'bar');
+        $q->setHandler('baz');
+        $this->assertEquals('baz', $q->getHandler());
+    }
+
+    /**
+     * Test setOperator() method
+     *
+     * @return void
+     */
+    public function testSetOperator()
+    {
+        $q = new Query('foo', 'bar');
+        $q->setOperator('baz');
+        $this->assertEquals('baz', $q->getOperator());
     }
 }

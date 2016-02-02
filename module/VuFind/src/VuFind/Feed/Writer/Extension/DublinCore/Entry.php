@@ -45,7 +45,18 @@ use Zend\Feed\Writer\Extension\ITunes\Entry as ParentEntry;
  */
 class Entry extends ParentEntry
 {
-    protected $dcFormats = array();
+    /**
+     * Formats
+     *
+     * @var array
+     */
+    protected $dcFormats = [];
+
+    /**
+     * Date
+     *
+     * @var string
+     */
     protected $dcDate = null;
 
     /**

@@ -26,7 +26,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindSearch\Backend\Solr;
 
 use VuFindSearch\ParamBag;
@@ -74,10 +73,10 @@ class HandlerMap extends AbstractHandlerMap
      *
      * @return void
      */
-    public function __construct(array $map = array())
+    public function __construct(array $map = [])
     {
-        $this->handlers = array();
-        $this->parameters = array();
+        $this->handlers = [];
+        $this->parameters = [];
         $this->setHandlerMap($map);
     }
 
@@ -212,11 +211,6 @@ class HandlerMap extends AbstractHandlerMap
      */
     public function addParameter($handler, $type, $name, $value)
     {
-        if ($key != 'invariants' && $key != 'appends' && $key != 'defaults') {
-            throw new InvalidArgumentException(
-                sprintf('Invalid parameter type: %s', $key)
-            );
-        }
         $this->getParameters($handler, $type)->add($name, $value);
     }
 
@@ -247,19 +241,16 @@ class HandlerMap extends AbstractHandlerMap
      * @param string $type    Parameter type, one of 'defaults', 'appends',
      *                        or 'invariants'
      *
-     * @return array
+     * @return ParamBag
      *
      * @throws InvalidArgumentException Invalid parameter key
      */
     public function getParameters($handler, $type)
     {
-        if ($type != 'invariants' && $type != 'appends' && $type != 'defaults') {
-            throw new InvalidArgumentException(
-                sprintf('Invalid parameter key: %s', $type)
-            );
-        }
+        // Create ParamBag if not already present; this also handles validation
+        // of the $type parameter.
         if (!isset($this->parameters[$handler][$type])) {
-            $this->parameters[$handler][$type] = new ParamBag();
+            $this->setParameters($handler, $type, []);
         }
         return $this->parameters[$handler][$type];
     }

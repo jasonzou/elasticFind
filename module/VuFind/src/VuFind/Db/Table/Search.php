@@ -47,7 +47,6 @@ class Search extends Gateway
         parent::__construct('search', 'VuFind\Db\Row\Search');
     }
 
-
     /**
      * Delete unsaved searches for a particular session.
      *
@@ -57,7 +56,7 @@ class Search extends Gateway
      */
     public function destroySession($sid)
     {
-        $this->delete(array('session_id' => $sid, 'saved' => 0));
+        $this->delete(['session_id' => $sid, 'saved' => 0]);
     }
 
     /**
@@ -111,7 +110,7 @@ class Search extends Gateway
      */
     public function getRowById($id, $exceptionIfMissing = true)
     {
-        $row = $this->select(array('id' => $id))->current();
+        $row = $this->select(['id' => $id])->current();
         if (empty($row) && $exceptionIfMissing) {
             throw new \Exception('Cannot find id ' . $id);
         }
@@ -149,10 +148,10 @@ class Search extends Gateway
      * @return void
      */
     public function saveSearch(\VuFind\Search\Results\PluginManager $manager,
-        $newSearch, $sessionId, $searchHistory = array()
+        $newSearch, $sessionId, $searchHistory = []
     ) {
         // Duplicate elimination
-        $dupSaved  = false;
+        $newUrl = $newSearch->getUrlQuery()->getParams();
         foreach ($searchHistory as $oldSearch) {
             // Deminify the old search (note that if we have a resource, we need
             // to grab the contents -- this is necessary for PostgreSQL compatibility
@@ -161,7 +160,6 @@ class Search extends Gateway
             $dupSearch = $minSO->deminify($manager);
             // See if the classes and urls match
             $oldUrl = $dupSearch->getUrlQuery()->getParams();
-            $newUrl = $newSearch->getUrlQuery()->getParams();
             if (get_class($dupSearch) == get_class($newSearch)
                 && $oldUrl == $newUrl
             ) {
@@ -180,11 +178,11 @@ class Search extends Gateway
 
         // If we got this far, we didn't find a saved duplicate, so we should
         // save the new search:
-        $data = array(
+        $data = [
             'session_id' => $sessionId,
             'created' => date('Y-m-d'),
             'search_object' => serialize(new minSO($newSearch))
-        );
+        ];
         $this->insert($data);
         $row = $this->getRowById($this->getLastInsertValue());
 

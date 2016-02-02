@@ -65,7 +65,7 @@ class UserList extends Gateway
         }
 
         $row = $this->createRow();
-        $row->created = date('Y-m-d h:i:s');    // force creation date
+        $row->created = date('Y-m-d H:i:s');    // force creation date
         $row->user_id = $user->id;
         return $row;
     }
@@ -80,7 +80,7 @@ class UserList extends Gateway
      */
     public function getExisting($id)
     {
-        $result = $this->select(array('id' => $id))->current();
+        $result = $this->select(['id' => $id])->current();
         if (empty($result)) {
             throw new RecordMissingException('Cannot load list ' . $id);
         }
@@ -97,29 +97,29 @@ class UserList extends Gateway
      *
      * @return array
      */
-    public function getListsContainingResource($resourceId, $source = 'VuFind',
-        $userId = null
+    public function getListsContainingResource($resourceId,
+        $source = DEFAULT_SEARCH_BACKEND, $userId = null
     ) {
         // Set up base query:
         $callback = function ($select) use ($resourceId, $source, $userId) {
             $select->columns(
-                array(
+                [
                     new Expression(
-                        'DISTINCT(?)', array('user_list.id'),
-                        array(Expression::TYPE_IDENTIFIER)
+                        'DISTINCT(?)', ['user_list.id'],
+                        [Expression::TYPE_IDENTIFIER]
                     ), '*'
-                )
+                ]
             );
             $select->join(
-                array('ur' => 'user_resource'), 'ur.list_id = user_list.id',
-                array()
+                ['ur' => 'user_resource'], 'ur.list_id = user_list.id',
+                []
             );
             $select->join(
-                array('r' => 'resource'), 'r.id = ur.resource_id', array()
+                ['r' => 'resource'], 'r.id = ur.resource_id', []
             );
             $select->where->equalTo('r.source', $source)
                 ->equalTo('r.record_id', $resourceId);
-            $select->order(array('title'));
+            $select->order(['title']);
 
             if (!is_null($userId)) {
                 $select->where->equalTo('ur.user_id', $userId);

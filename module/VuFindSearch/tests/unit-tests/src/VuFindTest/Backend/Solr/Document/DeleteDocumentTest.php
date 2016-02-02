@@ -26,7 +26,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindTest\Backend\Solr\Document;
 
 use VuFindSearch\Backend\Solr\Document\DeleteDocument;
@@ -57,6 +56,22 @@ class DeleteDocumentTest extends PHPUnit_Framework_TestCase
         $xml = $document->asXML();
         $this->assertXmlStringEqualsXmlString(
             '<delete><id>foobar</id><query>timestamp:[* TO NOW-12HOUR]</query></delete>',
+            $xml
+        );
+    }
+
+    /**
+     * Test creation of XML document with multiple keys.
+     *
+     * @return void
+     */
+    public function testAsXMLMultiKey()
+    {
+        $document = new DeleteDocument();
+        $document->addKeys(['foo', 'bar']);
+        $xml = $document->asXML();
+        $this->assertXmlStringEqualsXmlString(
+            '<delete><id>foo</id><id>bar</id></delete>',
             $xml
         );
     }

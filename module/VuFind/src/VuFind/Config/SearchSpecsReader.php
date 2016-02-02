@@ -51,7 +51,7 @@ class SearchSpecsReader
      *
      * @var array
      */
-    protected $searchSpecs = array();
+    protected $searchSpecs = [];
 
     /**
      * Constructor
@@ -83,23 +83,25 @@ class SearchSpecsReader
             $local = Locator::getLocalConfigPath($filename);
 
             // Generate cache key:
-            $key = $filename . '-' . filemtime($fullpath);
+            $cacheKey = $filename . '-'
+                . (file_exists($fullpath) ? filemtime($fullpath) : 0);
             if (!empty($local)) {
-                $key .= '-local-' . filemtime($local);
+                $cacheKey .= '-local-' . filemtime($local);
             }
-            $key = md5($key);
+            $cacheKey = md5($cacheKey);
 
             // Generate data if not found in cache:
-            if (!$cache || !($results = $cache->getItem($key))) {
-                $results = Yaml::parse($fullpath);
+            if ($cache === false || !($results = $cache->getItem($cacheKey))) {
+                $results = file_exists($fullpath)
+                    ? Yaml::parse(file_get_contents($fullpath)) : [];
                 if (!empty($local)) {
-                    $localResults = Yaml::parse($local);
+                    $localResults = Yaml::parse(file_get_contents($local));
                     foreach ($localResults as $key => $value) {
                         $results[$key] = $value;
                     }
                 }
-                if ($cache) {
-                    $cache->setItem($key, $results);
+                if ($cache !== false) {
+                    $cache->setItem($cacheKey, $results);
                 }
             }
             $this->searchSpecs[$filename] = $results;

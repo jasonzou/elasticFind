@@ -26,7 +26,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org
  */
-
 namespace VuFindSearch\Backend\Solr\Document;
 
 /**
@@ -48,7 +47,7 @@ abstract class AbstractDocument
     abstract public function asJSON();
 
     /**
-     * Return serialize XML representation.
+     * Return serialized XML representation.
      *
      * @return string
      */

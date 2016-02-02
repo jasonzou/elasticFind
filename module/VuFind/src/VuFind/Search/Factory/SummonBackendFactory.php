@@ -26,11 +26,11 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org   Main Site
  */
-
 namespace VuFind\Search\Factory;
 
 use SerialsSolutions\Summon\Zend2 as Connector;
 use VuFindSearch\Backend\BackendInterface;
+use VuFindSearch\Backend\Solr\LuceneSyntaxHelper;
 use VuFindSearch\Backend\Summon\Response\RecordCollectionFactory;
 use VuFindSearch\Backend\Summon\QueryBuilder;
 use VuFindSearch\Backend\Summon\Backend;
@@ -130,11 +130,23 @@ class SummonBackendFactory implements FactoryInterface
         $client = $this->serviceLocator->get('VuFind\Http')->createClient();
         $timeout = isset($this->summonConfig->General->timeout)
             ? $this->summonConfig->General->timeout : 30;
-        $client->setOptions(array('timeout' => $timeout));
+        $client->setOptions(['timeout' => $timeout]);
 
-        $connector = new Connector($id, $key, array(), $client);
+        $options = ['authedUser' => $this->isAuthed()];
+        $connector = new Connector($id, $key, $options, $client);
         $connector->setLogger($this->logger);
         return $connector;
+    }
+
+    /**
+     * Is the current user of the Summon connector authenticated?
+     *
+     * @return bool
+     */
+    protected function isAuthed()
+    {
+        return $this->serviceLocator->get('ZfcRbac\Service\AuthorizationService')
+            ->isGranted('access.SummonExtendedResults');
     }
 
     /**
@@ -145,9 +157,11 @@ class SummonBackendFactory implements FactoryInterface
     protected function createQueryBuilder()
     {
         $builder = new QueryBuilder();
-        $builder->caseSensitiveBooleans
+        $caseSensitiveBooleans
             = isset($this->summonConfig->General->case_sensitive_bools)
             ? $this->summonConfig->General->case_sensitive_bools : true;
+        $helper = new LuceneSyntaxHelper($caseSensitiveBooleans);
+        $builder->setLuceneHelper($helper);
         return $builder;
     }
 

@@ -38,9 +38,13 @@ use VuFind\Exception\Mail as MailException,
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://vufind.org   Main Site
  */
-
 class CartController extends AbstractBase
 {
+    /**
+     * Session container
+     *
+     * @var SessionContainer
+     */
     protected $session;
 
     /**
@@ -71,7 +75,7 @@ class CartController extends AbstractBase
     {
         // We came in from the cart -- let's remember this we can redirect there
         // when we're done:
-        $this->session->url = $this->url()->fromRoute('cart-home');
+        $this->session->url = $this->getLightboxAwareUrl('cart-home');
 
         // Now forward to the requested action:
         if (strlen($this->params()->fromPost('email', '')) > 0) {
@@ -83,7 +87,9 @@ class CartController extends AbstractBase
         } else if (strlen($this->params()->fromPost('export', '')) > 0) {
             $action = 'Export';
         } else {
-            $action = 'Cart';
+            // Check if the user is in the midst of a login process; if not,
+            // default to cart home.
+            $action = $this->followup()->retrieveAndClear('cartAction', 'Cart');
         }
         return $this->forwardTo('Cart', $action);
     }
@@ -95,6 +101,11 @@ class CartController extends AbstractBase
      */
     public function cartAction()
     {
+        // Bail out if cart is disabled.
+        if (!$this->getCart()->isActive()) {
+            return $this->redirect()->toRoute('home');
+        }
+
         $ids = is_null($this->params()->fromPost('selectAll'))
             ? $this->params()->fromPost('ids')
             : $this->params()->fromPost('idsAll');
@@ -117,8 +128,7 @@ class CartController extends AbstractBase
                     $msg = $this->translate('bookbag_full_msg') . ". "
                         . $addItems['notAdded'] . " "
                         . $this->translate('items_already_in_bookbag') . ".";
-                    $this->flashMessenger()->setNamespace('info')
-                        ->addMessage($msg);
+                    $this->flashMessenger()->addMessage($msg, 'info');
                 }
             }
         }
@@ -138,7 +148,7 @@ class CartController extends AbstractBase
         $listID = $this->params()->fromPost('listID');
         $this->session->url = empty($listID)
             ? $this->url()->fromRoute('myresearch-favorites')
-            : $this->url()->fromRoute('userList', array('id' => $listID));
+            : $this->url()->fromRoute('userList', ['id' => $listID]);
 
         // Now forward to the requested controller/action:
         $controller = 'Cart';   // assume Cart unless overridden below.
@@ -166,32 +176,40 @@ class CartController extends AbstractBase
      */
     public function emailAction()
     {
+        // Retrieve ID list:
+        $ids = is_null($this->params()->fromPost('selectAll'))
+            ? $this->params()->fromPost('ids')
+            : $this->params()->fromPost('idsAll');
+
+        // Retrieve follow-up information if necessary:
+        if (!is_array($ids) || empty($ids)) {
+            $ids = $this->followup()->retrieveAndClear('cartIds');
+        }
+        if (!is_array($ids) || empty($ids)) {
+            return $this->redirectToSource('error', 'bulk_noitems_advice');
+        }
+
         // Force login if necessary:
         $config = $this->getConfig();
         if ((!isset($config->Mail->require_login) || $config->Mail->require_login)
             && !$this->getUser()
         ) {
-            return $this->forceLogin();
+            return $this->forceLogin(
+                null, ['cartIds' => $ids, 'cartAction' => 'Email']
+            );
         }
 
-        $ids = is_null($this->params()->fromPost('selectAll'))
-            ? $this->params()->fromPost('ids')
-            : $this->params()->fromPost('idsAll');
-        if (!is_array($ids) || empty($ids)) {
-            return $this->redirectToSource('error', 'bulk_noitems_advice');
-        }
-        $view = $this->createViewModel();
+        $view = $this->createEmailViewModel(
+            null, $this->translate('bulk_email_title')
+        );
         $view->records = $this->getRecordLoader()->loadBatch($ids);
+        // Set up reCaptcha
+        $view->useRecaptcha = $this->recaptcha()->active('email');
 
         // Process form submission:
-        if ($this->params()->fromPost('submit')) {
-            // Send parameters back to view so form can be re-populated:
-            $view->to = $this->params()->fromPost('to');
-            $view->from = $this->params()->fromPost('from');
-            $view->message = $this->params()->fromPost('message');
-
+        if ($this->formWasSubmitted('submit', $view->useRecaptcha)) {
             // Build the URL to share:
-            $params = array();
+            $params = [];
             foreach ($ids as $current) {
                 $params[] = urlencode('id[]') . '=' . urlencode($current);
             }
@@ -200,14 +218,17 @@ class CartController extends AbstractBase
             // Attempt to send the email and show an appropriate flash message:
             try {
                 // If we got this far, we're ready to send the email:
-                $this->getServiceLocator()->get('VuFind\Mailer')->sendLink(
+                $mailer = $this->getServiceLocator()->get('VuFind\Mailer');
+                $mailer->setMaxRecipients($view->maxRecipients);
+                $cc = $this->params()->fromPost('ccself') && $view->from != $view->to
+                    ? $view->from : null;
+                $mailer->sendLink(
                     $view->to, $view->from, $view->message,
-                    $url, $this->getViewRenderer(), 'bulk_email_title'
+                    $url, $this->getViewRenderer(), $view->subject, $cc
                 );
-                return $this->redirectToSource('info', 'email_success');
+                return $this->redirectToSource('success', 'email_success');
             } catch (MailException $e) {
-                $this->flashMessenger()->setNamespace('error')
-                    ->addMessage($e->getMessage());
+                $this->flashMessenger()->addMessage($e->getMessage(), 'error');
             }
         }
 
@@ -227,8 +248,12 @@ class CartController extends AbstractBase
         if (!is_array($ids) || empty($ids)) {
             return $this->redirectToSource('error', 'bulk_noitems_advice');
         }
-        $this->getRequest()->getQuery()->set('id', $ids);
-        return $this->forwardTo('Records', 'Home');
+        $callback = function ($i) {
+            return 'id[]=' . urlencode($i);
+        };
+        $query = '?print=true&' . implode('&', array_map($callback, $ids));
+        $url = $this->url()->fromRoute('records-home') . $query;
+        return $this->redirect()->toUrl($url);
     }
 
     /**
@@ -260,19 +285,19 @@ class CartController extends AbstractBase
         $export = $this->getExport();
 
         // Process form submission if necessary:
-        if (!is_null($this->params()->fromPost('submit'))) {
+        if ($this->formWasSubmitted('submit')) {
             $format = $this->params()->fromPost('format');
             $url = $export->getBulkUrl($this->getViewRenderer(), $format, $ids);
             if ($export->needsRedirect($format)) {
                 return $this->redirect()->toUrl($url);
             }
-            $msg = array(
+            $msg = [
                 'translate' => false, 'html' => true,
                 'msg' => $this->getViewRenderer()->render(
-                    'cart/export-success.phtml', array('url' => $url)
+                    'cart/export-success.phtml', ['url' => $url]
                 )
-            );
-            return $this->redirectToSource('info', $msg);
+            ];
+            return $this->redirectToSource('success', $msg);
         }
 
         // Load the records:
@@ -285,8 +310,8 @@ class CartController extends AbstractBase
 
         // No legal export options?  Display a warning:
         if (empty($view->exportOptions)) {
-            $this->flashMessenger()->setNamespace('error')
-                ->addMessage('bulk_export_not_supported');
+            $this->flashMessenger()
+                ->addMessage('bulk_export_not_supported', 'error');
         }
         return $view;
     }
@@ -300,7 +325,7 @@ class CartController extends AbstractBase
     {
         // We use abbreviated parameters here to keep the URL short (there may
         // be a long list of IDs, and we don't want to run out of room):
-        $ids = $this->params()->fromQuery('i', array());
+        $ids = $this->params()->fromQuery('i', []);
         $format = $this->params()->fromQuery('f');
 
         // Make sure we have IDs to export:
@@ -312,11 +337,10 @@ class CartController extends AbstractBase
         $response = $this->getResponse();
         $response->getHeaders()->addHeaders($this->getExport()->getHeaders($format));
 
-
         // Actually export the records
         $records = $this->getRecordLoader()->loadBatch($ids);
         $recordHelper = $this->getViewRenderer()->plugin('record');
-        $parts = array();
+        $parts = [];
         foreach ($records as $record) {
             $parts[] = $recordHelper($record)->getExport($format);
         }
@@ -333,41 +357,54 @@ class CartController extends AbstractBase
      */
     public function saveAction()
     {
+        // Fail if lists are disabled:
+        if (!$this->listsEnabled()) {
+            throw new \Exception('Lists disabled');
+        }
+
         // Load record information first (no need to prompt for login if we just
         // need to display a "no records" error message):
         $ids = is_null($this->params()->fromPost('selectAll'))
-            ? $this->params()->fromPost('ids')
+            ? $this->params()->fromPost('ids', $this->params()->fromQuery('ids'))
             : $this->params()->fromPost('idsAll');
+        if (!is_array($ids) || empty($ids)) {
+            $ids = $this->followup()->retrieveAndClear('cartIds');
+        }
         if (!is_array($ids) || empty($ids)) {
             return $this->redirectToSource('error', 'bulk_noitems_advice');
         }
 
         // Make sure user is logged in:
-        $user = $this->getUser();
-        if ($user == false) {
-            return $this->forceLogin();
+        if (!($user = $this->getUser())) {
+            return $this->forceLogin(
+                null, ['cartIds' => $ids, 'cartAction' => 'Save']
+            );
         }
 
         // Process submission if necessary:
-        if (!is_null($this->params()->fromPost('submit'))) {
-            $this->favorites()
+        if ($this->formWasSubmitted('submit')) {
+            $results = $this->favorites()
                 ->saveBulk($this->getRequest()->getPost()->toArray(), $user);
-            $this->flashMessenger()->setNamespace('info')
-                ->addMessage('bulk_save_success');
-            $list = $this->params()->fromPost('list');
-            if (!empty($list)) {
-                return $this->redirect()->toRoute('userList', array('id' => $list));
-            } else {
-                return $this->redirectToSource();
-            }
+            $listUrl = $this->url()->fromRoute(
+                'userList',
+                ['id' => $results['listId']]
+            );
+            $message = [
+                'html' => true,
+                'msg' => $this->translate('bulk_save_success') . '. '
+                . '<a href="' . $listUrl . '" class="gotolist">'
+                . $this->translate('go_to_list') . '</a>.'
+            ];
+            $this->flashMessenger()->addMessage($message, 'success');
+            return $this->redirect()->toUrl($listUrl);
         }
 
         // Pass record and list information to view:
         return $this->createViewModel(
-            array(
+            [
                 'records' => $this->getRecordLoader()->loadBatch($ids),
                 'lists' => $user->getLists()
-            )
+            ]
         );
     }
 
@@ -383,9 +420,8 @@ class CartController extends AbstractBase
     public function redirectToSource($flashNamespace = null, $flashMsg = null)
     {
         // Set flash message if requested:
-        if (!is_null($flashNamespace) && !empty($flashMsg)) {
-            $this->flashMessenger()->setNamespace($flashNamespace)
-                ->addMessage($flashMsg);
+        if (null !== $flashNamespace && !empty($flashMsg)) {
+            $this->flashMessenger()->addMessage($flashMsg, $flashNamespace);
         }
 
         // If we entered the controller in the expected way (i.e. via the

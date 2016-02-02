@@ -48,6 +48,13 @@ class HarvestController extends AbstractBase
     {
         $this->checkLocalSetting();
 
+        // Parse switches:
+        $this->consoleOpts->addRules(
+            ['from-s' => 'Harvest start date', 'until-s' => 'Harvest end date']
+        );
+        $from = $this->consoleOpts->getOption('from');
+        $until = $this->consoleOpts->getOption('until');
+
         // Read Config files
         $configFile = \VuFind\Config\Locator::getConfigPath('oai.ini', 'harvest');
         $oaiSettings = @parse_ini_file($configFile, true);
@@ -61,7 +68,7 @@ class HarvestController extends AbstractBase
         $argv = $this->consoleOpts->getRemainingArgs();
         if (isset($argv[0])) {
             if (isset($oaiSettings[$argv[0]])) {
-                $oaiSettings = array($argv[0] => $oaiSettings[$argv[0]]);
+                $oaiSettings = [$argv[0] => $oaiSettings[$argv[0]]];
             } else {
                 Console::writeLine("Could not load settings for {$argv[0]}.");
                 return $this->getFailureResponse();
@@ -76,7 +83,7 @@ class HarvestController extends AbstractBase
                 try {
                     $client = $this->getServiceLocator()->get('VuFind\Http')
                         ->createClient();
-                    $harvest = new OAI($target, $settings, $client);
+                    $harvest = new OAI($target, $settings, $client, $from, $until);
                     $harvest->launch();
                 } catch (\Exception $e) {
                     Console::writeLine($e->getMessage());
@@ -125,7 +132,7 @@ class HarvestController extends AbstractBase
         Console::writeLine('<collection>');
         while (false !== ($file = readdir($handle))) {
             // Only operate on XML files:
-            if (pathinfo($file, PATHINFO_EXTENSION) === "xml" ) {
+            if (pathinfo($file, PATHINFO_EXTENSION) === "xml") {
                 // get file content
                 $filePath = $dir . '/' . $file;
                 $fileContent = file_get_contents($filePath);

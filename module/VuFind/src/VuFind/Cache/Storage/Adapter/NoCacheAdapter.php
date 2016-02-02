@@ -26,7 +26,6 @@
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://www.vufind.org  Main Page
  */
-
 namespace VuFind\Cache\Storage\Adapter;
 
 use Zend\Cache\Storage\Adapter\AbstractAdapter;
@@ -39,15 +38,17 @@ use Zend\Cache\Storage\Adapter\AbstractAdapter;
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
  * @link     http://www.vufind.org  Main Page
+ *
+ * @SuppressWarnings(PHPMD.UnusedFormalParameter)
  */
 class NoCacheAdapter extends AbstractAdapter
 {
     /**
      * Internal method to get an item.
      *
-     * @param string &$normalizedKey Normalized key
-     * @param bool   &$success       Success indicator
-     * @param mixed  &$casToken      CAS token
+     * @param string $normalizedKey Normalized key
+     * @param bool   $success       Success indicator
+     * @param mixed  $casToken      CAS token
      *
      * @return mixed Data on success, null on failure
      */
@@ -60,8 +61,8 @@ class NoCacheAdapter extends AbstractAdapter
     /**
      * Internal method to store an item.
      *
-     * @param string &$normalizedKey Normalized key
-     * @param mixed  &$value         Cache item
+     * @param string $normalizedKey Normalized key
+     * @param mixed  $value         Cache item
      *
      * @return bool
      */
@@ -73,7 +74,7 @@ class NoCacheAdapter extends AbstractAdapter
     /**
      * Internal method to remove an item.
      *
-     * @param string &$normalizedKey Normalized key
+     * @param string $normalizedKey Normalized key
      *
      * @return bool
      */
